@@ -1,36 +1,44 @@
+<!--
+ * @Author: randolph
+ * @Date: 2020-05-27 14:30:31
+ * @LastEditors: randolph
+ * @LastEditTime: 2020-05-27 15:16:35
+ * @version: 1.0
+ * @Contact: cyg0504@outlook.com
+ * @Descripttion: 
+--> 
 # husky_ad
 
-#### Description
-用python+ldap3管理windows server2019的AD域
+> Last update: 2020/5/27
 
-#### Software Architecture
-Software architecture description
+### 1 Introduction
 
-#### Installation
+Use python3 + ldap3 to manage the AD domain of windows server2019;
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+Goals: 
 
-#### Instructions
+-[x] Synchronize company organization structure from excel to AD domain in batches
+-[x] Batch sync company employees and their information from excel to AD domain
+-[x] Batch initialize employee passwords
+-[x] Provide simple interface for adding, deleting, modifying and checking
+-[] ...
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+### 2. Software Architecture
 
-#### Contribution
+The explosive packages that need to be installed and checked are listed here:
 
-1.  Fork the repository
-2.  Create Feat_xxx branch
-3.  Commit your code
-4.  Create Pull Request
+| Item | Description |
+| -------------------------------------- | ---------- ------------------------------------------------ |
+| python3.6.8 | Backend language |
+| [ldap3] (https://ldap3.readthedocs.io/) | is an excellent and robust explosive package for managing the active directory domain |
+| pandas | Instead of Python's native file reading package, improve processing efficiency |
+| winrm | Used to remotely connect to the windows server to execute powershell commands |
 
+### 3. Instructions
 
-#### Gitee Feature
-
-1.  You can use Readme\_XXX.md to support different languages, such as Readme\_en.md, Readme\_zh.md
-2.  Gitee blog [blog.gitee.com](https://blog.gitee.com)
-3.  Explore open source project [https://gitee.com/explore](https://gitee.com/explore)
-4.  The most valuable open source project [GVP](https://gitee.com/gvp)
-5.  The manual of Gitee [https://gitee.com/help](https://gitee.com/help)
-6.  The most popular members  [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+1. Modify the configuration information of ad domain and test connectivity
+2. Copy the excel form to the same directory as the code and modify the configuration information
+    Requirements for the form:
+    1. It must contain three columns of [work number | name | department], and there are no empty values ​​in these three columns (verification will be done in the program)
+    2. Each time it must be the latest [full amount] data pulled by the company (employees who are not in the form will do the resignation process, disable the account and move out of the original group)
+3. Just execute the "face to process" function, check the log and make sure there is no problem
