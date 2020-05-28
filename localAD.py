@@ -1,32 +1,63 @@
+'''
+@Author: randolph
+@Date: 2020-05-27 14:33:03
+@LastEditors: randolph
+@LastEditTime: 2020-05-28 17:11:12
+@version: 1.0
+@Contact: cyg0504@outlook.com
+@Descripttion:
+'''
+'''
+@Author: randolph
+@Date: 2020-05-27 14:33:03
+@LastEditors: randolph
+@LastEditTime: 2020-05-28 17:02:37
+@version: 1.0
+@Contact: cyg0504@outlook.com
+@Descripttion:
+'''
+'''
+@Author: randolph
+@Date: 2020-05-27 14:33:03
+@LastEditors: randolph
+@LastEditTime: 2020-05-28 17:02:33
+@version: 1.0
+@Contact: cyg0504@outlook.com
+@Descripttion:
+'''
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 '''
 @Author: randolph
 @Date: 2020-05-05 15:48:26
 @LastEditors: randolph
-@LastEditTime: 2020-05-28 16:11:22
+@LastEditTime: 2020-05-28 17:02:12
 @version: 2.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
 '''
 import json
-import winrm
-import string
-import random
-import os
-import yaml
 import logging.config
+import os
+import random
+import string
+
 import pandas as pd
-from ldap3 import Server, Connection, SIMPLE, SYNC, ALL, SASL, NTLM, ALL_ATTRIBUTES, MODIFY_REPLACE, SUBTREE
+import winrm
+import yaml
+from ldap3 import (ALL, ALL_ATTRIBUTES, MODIFY_REPLACE, NTLM, SASL, SIMPLE,
+                   SUBTREE, SYNC, Connection, Server)
+
 # 日志配置
 LOG_CONF = 'logging.yaml'
 # AD域设置
-LDAP_IP = '192.168.255.224'                                 # LDAP本地服务器IP
+LDAP_IP = '192.168.255.223'                                 # LDAP本地服务器IP
 USER = 'CN=Administrator,CN=Users,DC=randolph,DC=com'       # LDAP本地服务器IP
 PASSWORD = "QQqq#123"                                       # LDAP本地服务器管理员密码
 # excel表格
 BILIBILI_EXCEL = "ran_list.xlsx"                        # 原始造的数据
 TEST_BILIBILI_EXCEL = "test_ran_list.xlsx"              # 测试用表格
+PWD_PATH = 'pwd.txt'
 # WINRM信息 无需设置
 WINRM_USER = 'Administrator'
 WINRM_PWD = PASSWORD
@@ -182,6 +213,24 @@ class AD(object):
         pwd = ''.join(pwd_list)
         return pwd
 
+    def write2txt(self, path, content):
+        '''
+        @param path{string} 写入文件路径;content{string} 每行写入内容
+        @return:
+        @msg: 每行写入文件
+        '''
+        try:
+            if os.path.exists(path):
+                with open(path, mode='a', encoding='utf-8') as file:
+                    file.write(content + '\n')
+            else:
+                with open(path, mode='a', encoding='utf-8') as file:
+                    file.write(content + '\n')
+            return True
+        except Exception as e:
+            logging.error(e)
+            return False
+
     def del_ou_right(self, flag):
         '''
         @param cmd_l{list} 待执行的powershell命令列表
@@ -217,21 +266,30 @@ class AD(object):
 
     def create_obj(self, dn, type, attr=None):
         '''
-        @param dn{string}, type{string}user/ou
+        @param dn{string}, type{string}'user'/'ou'
         @return: res新建结果, self.conn.result修改结果
-        @msg:增加对象
+        @msg:新增对象 TODO:后面写入pwd文件需要作判断(覆盖该用户旧的DN和PWD那行记录)
         '''
         object_class = {'user': ['user', 'posixGroup', 'top'],
                         'ou': ['organizationalUnit', 'posixGroup', 'top'],
                         }
         res = self.conn.add(dn=dn, object_class=object_class[type], attributes=attr)
-        if type == 'user':                                                                  # 如果是用户时
-            new_pwd = self.generate_pwd(8)
-            old_pwd = ''
-            self.conn.extend.microsoft.modify_password(dn, new_pwd, old_pwd)                # 初始化密码
-            self.conn.modify(dn, {'userAccountControl': [('MODIFY_REPLACE', 512)]})         # 激活用户
-            logging.info('dn:【' + str(dn) + '】' + 'pwd:【' + str(new_pwd) + '】')         # 记录密码修改
-            self.conn.modify(dn, {'pwdLastSet': (2, [0])})                                  # 设置第一次登录必须修改密码
+        if res == True:
+            logging.info('新增对象【' + dn + '】成功!')
+            if type == 'user':          # 若是新增用户对象，则需要一些初始化操作                                                                  # 如果是用户时
+                new_pwd = self.generate_pwd(8)
+                old_pwd = ''
+                self.conn.extend.microsoft.modify_password(dn, new_pwd, old_pwd)                # 初始化密码
+                self.conn.modify(dn, {'userAccountControl': [('MODIFY_REPLACE', 512)]})         # 激活用户
+                info = 'DN: ' + dn + ' PWD: ' + new_pwd
+                save_res = self.write2txt(PWD_PATH, info)                                       # 将账户密码写入文件中
+                if save_res:
+                    logging.info('保存初始化账号密码成功！')
+                else:
+                    logging.error('保存初始化账号密码失败: ' + info)
+                self.conn.modify(dn, {'pwdLastSet': (2, [0])})                                  # 设置第一次登录必须修改密码
+        else:
+            logging.error('新增对象' + dn + '失败！请检查组织架构OU是否存在！')
         return res, self.conn.result
 
     def del_obj(self, dn):
@@ -432,16 +490,16 @@ if __name__ == "__main__":
     # result = ad.handle_excel(TEST_BILIBILI_EXCEL)
     # print(result)
     # 3.添加人员    通过√
-    # ad.create_obj('CN=王大锤1,OU=测试,DC=randolph,DC=com', 'user', attr={
-    #             'sAMAccountname': 'RAN000001',      # 登录名
-    #             'userAccountControl': 544,  # 启用账户
-    #             'title': '技术顾问',             # 头衔
-    #             'givenName': "王",     # 姓
-    #             'sn': "大锤",             # 名
-    #             'displayname': "王大锤",        # 姓名
-    #             'mail': "dachui.wang@ran-china.com",              # 邮箱
-    #             'telephoneNumber': 1502510654,     # 电话号
-    #         })
+    ad.create_obj('CN=王大锤1,OU=上海总部,DC=randolph,DC=com', 'user', attr={
+        'sAMAccountname': 'RAN000001',      # 登录名
+        'userAccountControl': 544,  # 启用账户
+        'title': '技术顾问',             # 头衔
+        'givenName': "王",     # 姓
+        'sn': "大锤",             # 名
+        'displayname': "王大锤",        # 姓名
+        'mail': "dachui.wang@ran-china.com",              # 邮箱
+                'telephoneNumber': 1502510654,     # 电话号
+    })
     # 4.添加OU      通过√
     # ad.create_obj('OU=RAN,DC=randolph,DC=com', 'ou')
     # 5.删除对象    通过√
