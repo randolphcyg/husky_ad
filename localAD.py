@@ -2,37 +2,8 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-28 17:34:07
+@LastEditTime: 2020-05-28 18:05:05
 @version: 1.0
-@Contact: cyg0504@outlook.com
-@Descripttion:
-'''
-'''
-@Author: randolph
-@Date: 2020-05-27 14:33:03
-@LastEditors: randolph
-@LastEditTime: 2020-05-28 17:02:37
-@version: 1.0
-@Contact: cyg0504@outlook.com
-@Descripttion:
-'''
-'''
-@Author: randolph
-@Date: 2020-05-27 14:33:03
-@LastEditors: randolph
-@LastEditTime: 2020-05-28 17:02:33
-@version: 1.0
-@Contact: cyg0504@outlook.com
-@Descripttion:
-'''
-#!/usr/bin/env python
-# -*- encoding: utf-8 -*-
-'''
-@Author: randolph
-@Date: 2020-05-05 15:48:26
-@LastEditors: randolph
-@LastEditTime: 2020-05-28 17:02:12
-@version: 2.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
 '''
@@ -142,8 +113,8 @@ class AD(object):
         self.conn.search(search_base=self.enabled_base_dn,
                          search_filter=self.ou_search_filter,
                          attributes=attr)
-        res = self.conn.response_to_json()
-        res = json.loads(res)['entries']
+        result = self.conn.response_to_json()
+        res = json.loads(result)['entries']
         return res
 
     def handle_excel(self, path):
