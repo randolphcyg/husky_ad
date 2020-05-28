@@ -2,7 +2,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-28 17:11:12
+@LastEditTime: 2020-05-28 17:34:07
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion:
@@ -274,6 +274,7 @@ class AD(object):
                         'ou': ['organizationalUnit', 'posixGroup', 'top'],
                         }
         res = self.conn.add(dn=dn, object_class=object_class[type], attributes=attr)
+
         if res == True:
             logging.info('新增对象【' + dn + '】成功!')
             if type == 'user':          # 若是新增用户对象，则需要一些初始化操作                                                                  # 如果是用户时
@@ -288,18 +289,29 @@ class AD(object):
                 else:
                     logging.error('保存初始化账号密码失败: ' + info)
                 self.conn.modify(dn, {'pwdLastSet': (2, [0])})                                  # 设置第一次登录必须修改密码
+            else:       # 若是OU类型则记得设置不可删除对象
+                self.del_ou_right(flag=1)
         else:
             logging.error('新增对象' + dn + '失败！请检查组织架构OU是否存在！')
         return res, self.conn.result
 
-    def del_obj(self, dn):
+    def del_obj(self, dn, type):
         '''
         @param dn{string}
         @return: res修改结果
         @msg: 删除对象
         '''
-        res = self.conn.delete(dn=dn)
-        return res
+        if type == 'ou':
+            self.del_ou_right(flag=0)
+            res = self.conn.delete(dn=dn)
+            self.del_ou_right(flag=1)
+        else:
+            res = self.conn.delete(dn=dn)
+        if res == True:
+            logging.info('删除对象' + dn + '成功！')
+            return res
+        else:
+            return False
 
     def update_obj(self, dn, attr=None):
         '''
@@ -490,20 +502,20 @@ if __name__ == "__main__":
     # result = ad.handle_excel(TEST_BILIBILI_EXCEL)
     # print(result)
     # 3.添加人员    通过√
-    ad.create_obj('CN=王大锤1,OU=上海总部,DC=randolph,DC=com', 'user', attr={
-        'sAMAccountname': 'RAN000001',      # 登录名
-        'userAccountControl': 544,  # 启用账户
-        'title': '技术顾问',             # 头衔
-        'givenName': "王",     # 姓
-        'sn': "大锤",             # 名
-        'displayname': "王大锤",        # 姓名
-        'mail': "dachui.wang@ran-china.com",              # 邮箱
-                'telephoneNumber': 1502510654,     # 电话号
-    })
+    # ad.create_obj('CN=王大锤1,OU=上海总部,DC=randolph,DC=com', 'user', attr={
+    #     'sAMAccountname': 'RAN000001',      # 登录名
+    #     'userAccountControl': 544,  # 启用账户
+    #     'title': '技术顾问',             # 头衔
+    #     'givenName': "王",     # 姓
+    #     'sn': "大锤",             # 名
+    #     'displayname': "王大锤",        # 姓名
+    #     'mail': "dachui.wang@ran-china.com",              # 邮箱
+    #             'telephoneNumber': 1502510654,     # 电话号
+    # })
     # 4.添加OU      通过√
-    # ad.create_obj('OU=RAN,DC=randolph,DC=com', 'ou')
+    # ad.create_obj('OU=TEST,DC=randolph,DC=com', 'ou')
     # 5.删除对象    通过√
-    # ad.del_obj('OU=RAN,DC=randolph,DC=com')
+    # ad.del_obj('OU=TEST,DC=randolph,DC=com', type='ou')
     # 6.分页查询全部user    通过√
     # res = ad.get_users()
     # print(res)
