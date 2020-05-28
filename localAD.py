@@ -4,29 +4,24 @@
 @Author: randolph
 @Date: 2020-05-05 15:48:26
 @LastEditors: randolph
-@LastEditTime: 2020-05-27 16:35:34
+@LastEditTime: 2020-05-28 16:11:22
 @version: 2.0
 @Contact: cyg0504@outlook.com
-@Descripttion: 优化了日志的中文编码、winrm的操作、随机密码生成逻辑、AD域查询改成分页以适应超过1000的查询情况
-表格文件的解析稳健性——增加对列数的判断、对每列对应何种属性的自动判断；
-需要将AD域的扫描流程整合成一键操作的；每一步骤都设置提示，让用户使用的时候出现错误有事务的回退；
+@Descripttion: 用python3+ldap3管理windows server2019的AD域;
 '''
-# 基础服务
 import json
 import winrm
 import string
 import random
-import logging
-# 数据处理
+import os
+import yaml
+import logging.config
 import pandas as pd
-# LDAP3
 from ldap3 import Server, Connection, SIMPLE, SYNC, ALL, SASL, NTLM, ALL_ATTRIBUTES, MODIFY_REPLACE, SUBTREE
-# 日志设置
-LOG_FORMAT = "%(asctime)s  %(levelname)s  %(filename)s  %(lineno)d  %(message)s"
-LOG_FILE = open("localAD.log", encoding="utf-8", mode="a")
-logging.basicConfig(stream=LOG_FILE, format=LOG_FORMAT, level=logging.INFO)
+# 日志配置
+LOG_CONF = 'logging.yaml'
 # AD域设置
-LDAP_IP = '192.168.255.223'                                 # LDAP本地服务器IP
+LDAP_IP = '192.168.255.224'                                 # LDAP本地服务器IP
 USER = 'CN=Administrator,CN=Users,DC=randolph,DC=com'       # LDAP本地服务器IP
 PASSWORD = "QQqq#123"                                       # LDAP本地服务器管理员密码
 # excel表格
@@ -44,18 +39,26 @@ class AD(object):
     def __init__(self):
         '''初始化 AD域连接
         '''
+        # 初始化加载日志配置
+        self.setup_logging(path=LOG_CONF)
         SERVER = Server(host=LDAP_IP,
                         port=636,                                       # 636安全端口
                         use_ssl=True,
                         get_info=ALL,
                         connect_timeout=3)                              # 连接超时为3秒
-        self.conn = Connection(
-            server=SERVER,
-            user=USER,
-            password=PASSWORD,
-            auto_bind=True,
-            read_only=False,                                            # 禁止修改数据True
-            receive_timeout=3)                                          # 3秒内没返回消息则触发超时异常
+        try:
+            self.conn = Connection(
+                server=SERVER,
+                user=USER,
+                password=PASSWORD,
+                auto_bind=True,
+                read_only=False,                                            # 禁止修改数据True
+                receive_timeout=3)                                          # 3秒内没返回消息则触发超时异常
+            logging.info("distinguishedName:%s res: %s" % (USER, self.conn.bind()))
+        except BaseException as e:
+            logging.error("AD域连接失败，请检查IP/账户/密码")
+        finally:
+            self.conn.closed
 
         self.disabled_base_dn = 'OU=resigned,DC=randolph,DC=com'        # 离职账户所在OU
         self.enabled_base_dn = 'OU=上海总部,DC=randolph,DC=com'         # 正式员工账户所在OU
@@ -64,15 +67,16 @@ class AD(object):
         self.disabled_user_flag = [514, 546, 66050, 66080, 66082]       # 禁用账户
         self.enabled_user_flag = [512, 544, 66048, 262656]              # 启用账户
 
-    def check_conn(self):
-        try:
-            logging.info("username:%s res: %s" % (USER, self.conn.bind()))
-            return self.conn
-        except BaseException:
-            logging.warning("username:%s res: %s" % (USER, self.conn.bind()))
-            return False
-        finally:
-            self.conn.closed
+    def setup_logging(self, path="logging.yaml", defa_level=logging.INFO, env_key="LOG_CFG"):
+        value = os.getenv(env_key, None)
+        if value:
+            path = value
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                config = yaml.safe_load(f)
+                logging.config.dictConfig(config)
+        else:
+            logging.basicConfig(level=defa_level)
 
     def get_users(self, attr=ALL_ATTRIBUTES):
         '''
@@ -424,8 +428,6 @@ class AD(object):
 if __name__ == "__main__":
     # 0.创建一个实例
     ad = AD()
-    # 1.检测AD域连通性 # 通过√
-    ad.check_conn()
     # 2.处理源数据    通过√
     # result = ad.handle_excel(TEST_BILIBILI_EXCEL)
     # print(result)
@@ -445,7 +447,8 @@ if __name__ == "__main__":
     # 5.删除对象    通过√
     # ad.del_obj('OU=RAN,DC=randolph,DC=com')
     # 6.分页查询全部user    通过√
-    # ad.get_users()
+    # res = ad.get_users()
+    # print(res)
     # 7.更新AD域     通过√ 【对于新增的没有问题】  @@@@@修改的待修改@@@@@
     # ad.ad_update()
     # 8.执行powershell命令   通过√
