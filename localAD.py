@@ -1,8 +1,10 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
 '''
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-28 18:05:05
+@LastEditTime: 2020-05-29 00:58:45
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -25,9 +27,16 @@ LOG_CONF = 'logging.yaml'
 LDAP_IP = '192.168.255.223'                                 # LDAP本地服务器IP
 USER = 'CN=Administrator,CN=Users,DC=randolph,DC=com'       # LDAP本地服务器IP
 PASSWORD = "QQqq#123"                                       # LDAP本地服务器管理员密码
+
+DISABLED_BASE_DN = 'OU=resigned,DC=randolph,DC=com'        # 离职账户所在OU
+ENABLED_BASE_DN = "OU=上海总部,DC=randolph,DC=com"          # 正式员工账户所在OU
+USER_SEARCH_FILTER = '(objectclass=user)'                  # 只获取用户对象 过滤条件
+OU_SEARCH_FILTER = '(objectclass=organizationalUnit)'      # 只获取OU对象 过滤条件
+DISABLED_USER_FLAG = [514, 546, 66050, 66080, 66082]       # 禁用账户UserAccountControl对应十进制值列表
+ENABLED_USER_FLAG = [512, 544, 66048, 262656]              # 启用账户UserAccountControl对应十进制值列表
 # excel表格
-BILIBILI_EXCEL = "ran_list.xlsx"                        # 原始造的数据
-TEST_BILIBILI_EXCEL = "test_ran_list.xlsx"              # 测试用表格
+RAN_EXCEL = "ran_list.xlsx"                        # 原始造的数据
+TEST_RAN_EXCEL = "test_ran_list.xlsx"              # 测试用表格
 PWD_PATH = 'pwd.txt'
 # WINRM信息 无需设置
 WINRM_USER = 'Administrator'
@@ -39,7 +48,9 @@ class AD(object):
     '''
 
     def __init__(self):
-        '''初始化 AD域连接
+        '''初始化加载日志配置
+        AD域连接
+        AD基础信息加载
         '''
         # 初始化加载日志配置
         self.setup_logging(path=LOG_CONF)
@@ -62,14 +73,7 @@ class AD(object):
         finally:
             self.conn.closed
 
-        self.disabled_base_dn = 'OU=resigned,DC=randolph,DC=com'        # 离职账户所在OU
-        self.enabled_base_dn = 'OU=上海总部,DC=randolph,DC=com'         # 正式员工账户所在OU
-        self.user_search_filter = '(objectclass=user)'                  # 只获取用户对象
-        self.ou_search_filter = '(objectclass=organizationalUnit)'      # 只获取OU对象
-        self.disabled_user_flag = [514, 546, 66050, 66080, 66082]       # 禁用账户
-        self.enabled_user_flag = [512, 544, 66048, 262656]              # 启用账户
-
-    def setup_logging(self, path="logging.yaml", defa_level=logging.INFO, env_key="LOG_CFG"):
+    def setup_logging(self, path="logging.yaml", default_level=logging.INFO, env_key="LOG_CFG"):
         value = os.getenv(env_key, None)
         if value:
             path = value
@@ -78,7 +82,7 @@ class AD(object):
                 config = yaml.safe_load(f)
                 logging.config.dictConfig(config)
         else:
-            logging.basicConfig(level=defa_level)
+            logging.basicConfig(level=default_level)
 
     def get_users(self, attr=ALL_ATTRIBUTES):
         '''
@@ -87,8 +91,8 @@ class AD(object):
         @msg: 获取所有用户
         '''
         entry_list = self.conn.extend.standard.paged_search(
-            search_base=self.enabled_base_dn,
-            search_filter=self.user_search_filter,
+            search_base=ENABLED_BASE_DN,
+            search_filter=USER_SEARCH_FILTER,
             search_scope=SUBTREE,
             attributes=attr,
             paged_size=5,
@@ -96,12 +100,7 @@ class AD(object):
         total_entries = 0
         for entry in entry_list:
             total_entries += 1
-            # print(entry['attributes']['distinguishedName'])
-            # for k, v in zip(entry['attributes'].keys(), entry['attributes'].values()):
-            #     print(k, v)
-            # break
-        # print(entry['dn'], entry['attributes'])
-        # print('共查询到记录条目:', total_entries)
+        logging.info("共查询到记录条目: " + str(total_entries))
         return entry_list
 
     def get_ous(self, attr=None):
@@ -110,12 +109,12 @@ class AD(object):
         @return: res所有OU
         @msg: 获取所有OU
         '''
-        self.conn.search(search_base=self.enabled_base_dn,
-                         search_filter=self.ou_search_filter,
+        self.conn.search(search_base=ENABLED_BASE_DN,
+                         search_filter=OU_SEARCH_FILTER,
                          attributes=attr)
         result = self.conn.response_to_json()
-        res = json.loads(result)['entries']
-        return res
+        res_list = json.loads(result)['entries']
+        return res_list
 
     def handle_excel(self, path):
         '''
@@ -151,19 +150,20 @@ class AD(object):
                 for i, row in enumerate(person_list):
                     job_id, name, depart = row[0:3]
                     # 将部门列替换成DN
-                    row[2] = 'CN=' + str(name + str(job_id)) + ',' + 'OU=' + ',OU='.join(row[2].split('.')[::-1]) + ',' + self.enabled_base_dn
+                    row[2] = 'CN=' + str(name + str(job_id)) + ',' + 'OU=' + ',OU='.join(row[2].split('.')[::-1]) + ',' + ENABLED_BASE_DN
                     row.append('RAN' + str(job_id).zfill(6))        # 增加登录名列,对应AD域user的 sAMAccountname 属性
                     row.append(name + str(job_id))                  # 增加CN列,对应user的 cn 属性
                 # 3.开始处理返回字典
-                result = dict()                         # 返回字典
+                result_dic = dict()                         # 返回字典
                 if a > 1000:
-                    result['page_flag'] = True
+                    result_dic['page_flag'] = True
                 else:
-                    result['page_flag'] = False
-                result['person_list'] = person_list
-                return result
+                    result_dic['page_flag'] = False
+                result_dic['person_list'] = person_list
+                return result_dic
         except Exception as e:
             logging.error(e)
+            return None
 
     def generate_pwd(self, count):
         '''
@@ -181,8 +181,8 @@ class AD(object):
         # 从四种类别中再取余数个字符
         pwd_list.extend(random.sample(string.digits + string.ascii_lowercase + string.ascii_uppercase + '!@#$%^&*()', b))
         random.shuffle(pwd_list)
-        pwd = ''.join(pwd_list)
-        return pwd
+        pwd_str = ''.join(pwd_list)
+        return pwd_str
 
     def write2txt(self, path, content):
         '''
@@ -232,8 +232,8 @@ class AD(object):
             else:
                 return False
         except Exception as e:
-            return False
             logging.error(e)
+            return False
 
     def create_obj(self, dn, type, attr=None):
         '''
@@ -244,9 +244,9 @@ class AD(object):
         object_class = {'user': ['user', 'posixGroup', 'top'],
                         'ou': ['organizationalUnit', 'posixGroup', 'top'],
                         }
-        res = self.conn.add(dn=dn, object_class=object_class[type], attributes=attr)
+        add_res = self.conn.add(dn=dn, object_class=object_class[type], attributes=attr)
 
-        if res == True:
+        if add_res == True:
             logging.info('新增对象【' + dn + '】成功!')
             if type == 'user':          # 若是新增用户对象，则需要一些初始化操作                                                                  # 如果是用户时
                 new_pwd = self.generate_pwd(8)
@@ -264,7 +264,7 @@ class AD(object):
                 self.del_ou_right(flag=1)
         else:
             logging.error('新增对象' + dn + '失败！请检查组织架构OU是否存在！')
-        return res, self.conn.result
+        return add_res
 
     def del_obj(self, dn, type):
         '''
@@ -288,34 +288,38 @@ class AD(object):
         '''
         @param {type}
         @return:
-        @msg: 更新对象，这个还不清楚
+        @msg: 更新对象，已作修改测试通过 TODO:优化为根据name自动判断dn并更新
         '''
         changes_dic = {}
         for k, v in attr.items():
-            if not self.conn.compare(dn=dn, attribute=k, value=v):
+            if not self.conn.compare(dn=dn, attribute=k, value=v):                  # 待修改属性
                 if k == "name":
-                    res = self.__rename_obj(dn=dn, newname=attr['name'])     # 改过名字后，DN就变了,这里调用重命名的方法
-                    if res['description'] == "success":
+                    res = self.rename_obj(dn=dn, newname='CN=' + attr['name'])      # 若修改name则dn变化，需要调用重命名的方法
+                    if res:
                         if "CN" == dn[:2]:
-                            dn = "cn=%s,%s" % (attr["name"], dn.split(",", 1)[1])
+                            dn = "CN=%s,%s" % (attr["name"], dn.split(",", 1)[1])
                         if "OU" == dn[:2]:
                             dn = "DN=%s,%s" % (attr["name"], dn.split(",", 1)[1])
-                if k == "DistinguishedName":                            # 如果属性里有“DistinguishedName”，表示需要移动User or OU
-                    self.__move_obj(dn=dn, new_dn=v)                  # 调用移动User or OU 的方法
+                if k == "distinguishedName":                                         # 若属性有distinguishedName则需要移动user或ou
+                    self.move_obj(dn=dn, new_dn=v)                                   # 调用移动user或ou的方法
                 changes_dic.update({k: [(MODIFY_REPLACE, [v])]})
-                self.conn.modify(dn=dn, changes=changes_dic)
-        return self.conn.result
+                modify_res = self.conn.modify(dn=dn, changes=changes_dic)
+        logging.info('更新对象: ' + str(changes_dic))
+        return self.conn.result, modify_res
 
-    def __rename_obj(self, dn, newname):
+    def rename_obj(self, dn, newname):
         '''
         @param newname{type}新的名字，User格式："cn=新名字";OU格式："OU=新名字"
         @return: 修改结果
         @msg: 重命名对象
         '''
-        self.conn.modify_dn(dn, newname)
-        return self.conn.result
+        res = self.conn.modify_dn(dn, newname)
+        if res == True:
+            return True
+        else:
+            return False
 
-    def __move_obj(self, dn, new_dn):
+    def move_obj(self, dn, new_dn):
         '''
         @param {type}
         @return:
@@ -323,7 +327,10 @@ class AD(object):
         '''
         relative_dn, superou = new_dn.split(",", 1)
         res = self.conn.modify_dn(dn=dn, relative_dn=relative_dn, new_superior=superou)
-        return res
+        if res == True:
+            return True
+        else:
+            return False
 
     def compare_attr(self, dn, attr, value):
         '''
@@ -345,7 +352,7 @@ class AD(object):
         '''
         if ou_list is None:
             ou_list = []
-        self.conn.search(ou, self.ou_search_filter)  # 判断OU存在性
+        self.conn.search(ou, OU_SEARCH_FILTER)  # 判断OU存在性
 
         while self.conn.result['result'] == 0:
             if ou_list:
@@ -363,7 +370,7 @@ class AD(object):
         for i, ou in enumerate(res):
             dn = ou['attributes']['distinguishedName']
             # 判断dd下面是否有用户，没有用户的直接删除
-            self.conn.search(search_base=dn, search_filter=self.user_search_filter)
+            self.conn.search(search_base=dn, search_filter=USER_SEARCH_FILTER)
             if not self.conn.entries:  # 没有用户存在的空OU，可以进行清理
                 try:
                     # 调用ps脚本，防止对象被意外删除×
@@ -381,17 +388,16 @@ class AD(object):
         else:
             logging.info("没有空OU，OU扫描完成！")
 
-    def disable_user(self):
+    def disable_users(self, path):
         '''
         @param {type}
         @return:
         @msg: 将AD域内的用户不在csv表格中的定义为离职员工
         '''
-        result = ad.handle_excel(TEST_BILIBILI_EXCEL)
+        result = ad.handle_excel(path)
         newest_list = []        # 全量员工列表
         for person in result['person_list']:
             job_id, name, dn, email, tel, title, sam, cn = person[0:8]
-            # print(job_id, name, dn, email, tel, title, sam, cn)
             dd = str(dn).split(',', 1)[1]
             newest_list.append(name)
         # 查询AD域现有员工
@@ -400,46 +406,43 @@ class AD(object):
             ad_user_distinguishedName, ad_user_displayName, ad_user_cn, ad_user_userAccountControl = ou['attributes'][
                 'distinguishedName'], ou['attributes']['displayName'], ou['attributes']['cn'], ou['attributes']['userAccountControl']
             rela_dn = "cn=" + str(ad_user_cn)
-            print(ad_user_distinguishedName, ad_user_displayName, ad_user_cn, ad_user_userAccountControl, rela_dn)
             # 判断用户不在最新的员工表格中 或者 AD域中某用户为禁用用户
-            if ad_user_displayName not in newest_list or ad_user_userAccountControl in self.disabled_user_flag:
+            if ad_user_displayName not in newest_list or ad_user_userAccountControl in DISABLED_USER_FLAG:
                 try:
                     # 禁用用户
                     self.conn.modify(dn=ad_user_distinguishedName, changes={'userAccountControl': (2, [546])})
-                    logging.info("禁用用户:" + ad_user_distinguishedName)
+                    logging.info("在AD域中发现不在表格中用户，禁用用户:" + ad_user_distinguishedName)
                     # 移动到离职组 判断OU存在性
-                    self.conn.search(self.disabled_base_dn, self.ou_search_filter)  # 判断OU存在性
-                    if self.conn.entries == []:         # 搜不到离职员工OU则需要创建此OU
-                        self.create_obj(dn=self.disabled_base_dn, type='ou')
+                    self.conn.search(DISABLED_BASE_DN, OU_SEARCH_FILTER)    # 判断OU存在性
+                    if self.conn.entries == []:                             # 搜不到离职员工OU则需要创建此OU
+                        self.create_obj(dn=DISABLED_BASE_DN, type='ou')
                     # 移动到离职组
-                    self.conn.modify_dn(dn=ad_user_distinguishedName, relative_dn=rela_dn, new_superior=self.disabled_base_dn)
-                    logging.info('将禁用用户【' + ad_user_cn + '】转移到【' + self.disabled_base_dn + '】')
+                    self.conn.modify_dn(dn=ad_user_distinguishedName, relative_dn=rela_dn, new_superior=DISABLED_BASE_DN)
+                    logging.info('将禁用用户【' + ad_user_distinguishedName + '】转移到【' + DISABLED_BASE_DN + '】')
                 except Exception as e:
                     logging.error(e)
 
-    def ad_update(self):
+    def ad_update(self, path):
         '''ad域的初始化或更新: 将从表格处理好的数据同步到AD域：
-        如果AD域没有OU，则创建OU；
-        如果没有人则创建；
+        如果AD域没有OU，则创建OU;
+        如果此用户则创建;
+        TODO:需要增加健壮性检验
         '''
-        result = ad.handle_excel(TEST_BILIBILI_EXCEL)
-        # print(result['page_flag'])
+        result = ad.handle_excel(path)
         for person in result['person_list']:
             job_id, name, dn, email, tel, title, sam, cn = person[0:8]
-            print(job_id, name, dn, email, tel, title, sam, cn)
             dd = str(dn).split(',', 1)[1]
-            # 通过表格中的路径去搜索AD域中对应的用户，如果能搜到说明没改变，略过；
-            # 如果没搜到，有可能是该用户调整了位置|或者该用户是新用户，没有创建
+            # 通过表格中的路径去搜索AD域中对应的用户，如果能搜到说明没改变，略过;
+            # 如果没搜到，有可能是该用户调整了位置|或者该用户是新用户，没有创建;
             self.conn.search(dn, '(objectclass=user)', attributes=['distinguishedName'])
             if self.conn.result['result'] == 0:      # 未发生变化的用户
                 pass
             else:
                 filter_phrase = "(&(objectclass=person)(cn=" + cn + "))"
-                self.conn.search(search_base=self.disabled_base_dn, search_filter=filter_phrase, attributes=['*'])
+                self.conn.search(search_base=DISABLED_BASE_DN, search_filter=filter_phrase, attributes=['*'])
                 entry = self.conn.entries
                 if entry:
                     rela_dn = "cn=" + str(cn)
-                    # print("待修改用户 " + str(entry[0].distinguishedName), rela_dn, dd)
                     try:
                         self.conn.modify_dn(dn=entry[0].distinguishedName, relative_dn=rela_dn, new_superior=dd)
                         if self.conn.result['result'] == 0:
@@ -451,7 +454,7 @@ class AD(object):
                                 logging.info("modify_dn " + str(entry[0].distinguishedName), rela_dn, dd)
                     except Exception as e:
                         logging.error(e)
-                else:  # 需要新增user
+                else:       # 需要新增user
                     if self.check_ou(dd):
                         user_attr = {'sAMAccountname': sam,      # 登录名
                                      'userAccountControl': 544,  # 启用账户
@@ -463,16 +466,16 @@ class AD(object):
                                      'telephoneNumber': tel,     # 电话号
                                      }
                         self.create_obj(dn=dn, type='user', attr=user_attr)
-            # break
 
 
 if __name__ == "__main__":
     # 0.创建一个实例
     ad = AD()
-    # 2.处理源数据    通过√
-    # result = ad.handle_excel(TEST_BILIBILI_EXCEL)
+    # ad.get_ous()
+    # 处理源数据    通过√
+    # result = ad.handle_excel(TEST_RAN_EXCEL)
     # print(result)
-    # 3.添加人员    通过√
+    # 添加人员    通过√
     # ad.create_obj('CN=王大锤1,OU=上海总部,DC=randolph,DC=com', 'user', attr={
     #     'sAMAccountname': 'RAN000001',      # 登录名
     #     'userAccountControl': 544,  # 启用账户
@@ -483,18 +486,34 @@ if __name__ == "__main__":
     #     'mail': "dachui.wang@ran-china.com",              # 邮箱
     #             'telephoneNumber': 1502510654,     # 电话号
     # })
-    # 4.添加OU      通过√
+    # 添加OU      通过√
     # ad.create_obj('OU=TEST,DC=randolph,DC=com', 'ou')
-    # 5.删除对象    通过√
+    # 删除对象    通过√
     # ad.del_obj('OU=TEST,DC=randolph,DC=com', type='ou')
-    # 6.分页查询全部user    通过√
+    # ad.del_obj('CN=王大锤1,OU=上海总部,DC=randolph,DC=com', type='user')
+    # 更新对象    通过√
+    # result, res = ad.update_obj(dn='CN=李大锤1,OU=上海总部,DC=randolph,DC=com', attr={
+    #     'name': '王大锤1',
+    #     'sAMAccountname': 'RAN000001',      # 登录名
+    #     'userAccountControl': 544,          # 启用账户
+    #     'title': '技术顾问',                 # 头衔
+    #     'givenName': "王",                  # 姓
+    #     'sn': "大锤",                       # 名
+    #     'displayname': "王大锤",            # 姓名
+    #     'mail': "dachui.li@ran-china.com",  # 邮箱
+    #     'telephoneNumber': 1502510632,      # 电话号
+    # })
+    # print(result, res)
+    # res = ad.rename_obj(dn='CN=王大锤1,OU=上海总部,DC=randolph,DC=com', newname='CN=李大锤1')
+    # print(res)
+    # 分页查询全部user    通过√
     # res = ad.get_users()
     # print(res)
-    # 7.更新AD域     通过√ 【对于新增的没有问题】  @@@@@修改的待修改@@@@@
-    # ad.ad_update()
-    # 8.执行powershell命令   通过√
+    # 更新AD域     通过√ 【对于新增的没有问题】  @@@@@修改的待修改@@@@@
+    # ad.ad_update(TEST_RAN_EXCEL)
+    # 执行powershell命令   通过√
     # ad.del_ou_right(flag=0)
-    # 9.空OU的扫描与删除    通过√
+    # 空OU的扫描与删除    通过√
     # ad.scan_ou()
-    # 10.离职员工逻辑    通过√       【M】将禁用员工的处理集成
-    # ad.disable_user()
+    # 离职员工逻辑    通过√       【M】将禁用员工的处理集成
+    # ad.disable_users(TEST_RAN_EXCEL)

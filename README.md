@@ -2,7 +2,7 @@
  * @Author: randolph
  * @Date: 2020-05-27 14:30:31
  * @LastEditors: randolph
- * @LastEditTime: 2020-05-28 16:55:37
+ * @LastEditTime: 2020-05-29 00:56:23
  * @version: 1.0
  * @Contact: cyg0504@outlook.com
  * @Descripttion: 
@@ -20,10 +20,12 @@
 - [x] 批量从excel同步公司组织架构到AD域
 - [x] 批量从excel同步公司员工及其信息到AD域
 - [x] 批量初始化员工密码
-- [x] 提供增删改查简易接口
+- [x] 提供增删改查简易接口 新增或更新信息接口需要更简易化
 - [x] 将重要修改信息与错误信息分离
 - [x] 用txt将用户/密码“持久化”
-- [ ] AD域密码过期
+- [ ] AD域密码过期监控
+- [ ] update_obj方法需要优化为根据name自动判断dn并更新
+- [ ] ad_update方法需要增加健壮性检验
 
 ### 2.软件架构
 
