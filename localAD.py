@@ -1,10 +1,19 @@
+'''
+@Author: randolph
+@Date: 2020-05-27 14:33:03
+@LastEditors: randolph
+@LastEditTime: 2020-05-29 12:23:14
+@version: 1.0
+@Contact: cyg0504@outlook.com
+@Descripttion:
+'''
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 '''
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-29 00:58:45
+@LastEditTime: 2020-05-29 10:39:04
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -37,6 +46,7 @@ ENABLED_USER_FLAG = [512, 544, 66048, 262656]              # 启用账户UserAcc
 # excel表格
 RAN_EXCEL = "ran_list.xlsx"                        # 原始造的数据
 TEST_RAN_EXCEL = "test_ran_list.xlsx"              # 测试用表格
+NEW_RAN_EXCEL = "new_ran_list.xlsx"              # 新增员工表格
 PWD_PATH = 'pwd.txt'
 # WINRM信息 无需设置
 WINRM_USER = 'Administrator'
@@ -235,24 +245,38 @@ class AD(object):
             logging.error(e)
             return False
 
-    def create_obj(self, dn, type, attr=None):
+    def create_obj(self, dn=None, type='user', info=None):
         '''
         @param dn{string}, type{string}'user'/'ou'
         @return: res新建结果, self.conn.result修改结果
-        @msg:新增对象 TODO:后面写入pwd文件需要作判断(覆盖该用户旧的DN和PWD那行记录)
+        @msg:新增对象 
         '''
         object_class = {'user': ['user', 'posixGroup', 'top'],
                         'ou': ['organizationalUnit', 'posixGroup', 'top'],
                         }
-        add_res = self.conn.add(dn=dn, object_class=object_class[type], attributes=attr)
+        if info is not None:
+            [job_id, name, dn, email, tel, title, sam, cn] = info
+            user_attr = {'sAMAccountname': sam,      # 登录名
+                                        'userAccountControl': 544,  # 启用账户
+                                        'title': title,             # 头衔
+                                        'givenName': name[0:1],     # 姓
+                                        'sn': name[1:],             # 名
+                                        'displayname': name,        # 姓名
+                                        'mail': email,              # 邮箱
+                                        'telephoneNumber': tel,     # 电话号
+                                        }
+        else:
+            user_attr = None
+        self.conn.add(dn=dn, object_class=object_class[type], attributes=user_attr)
+        add_result = self.conn.result
 
-        if add_res == True:
+        if add_result['result'] == 0:
             logging.info('新增对象【' + dn + '】成功!')
-            if type == 'user':          # 若是新增用户对象，则需要一些初始化操作                                                                  # 如果是用户时
+            if type == 'user':          # 若是新增用户对象，则需要一些初始化操作
+                self.conn.modify(dn, {'userAccountControl': [('MODIFY_REPLACE', 512)]})         # 激活用户                                                               # 如果是用户时
                 new_pwd = self.generate_pwd(8)
                 old_pwd = ''
                 self.conn.extend.microsoft.modify_password(dn, new_pwd, old_pwd)                # 初始化密码
-                self.conn.modify(dn, {'userAccountControl': [('MODIFY_REPLACE', 512)]})         # 激活用户
                 info = 'DN: ' + dn + ' PWD: ' + new_pwd
                 save_res = self.write2txt(PWD_PATH, info)                                       # 将账户密码写入文件中
                 if save_res:
@@ -262,9 +286,13 @@ class AD(object):
                 self.conn.modify(dn, {'pwdLastSet': (2, [0])})                                  # 设置第一次登录必须修改密码
             else:       # 若是OU类型则记得设置不可删除对象
                 self.del_ou_right(flag=1)
+        elif add_result['result'] == 68:
+            logging.error('entryAlreadyExists 用户已经存在')
+        elif add_result['result'] == 32:
+            logging.error('noSuchObject 对象不存在ou错误')
         else:
-            logging.error('新增对象' + dn + '失败！请检查组织架构OU是否存在！')
-        return add_res
+            logging.error('新增对象: ' + dn + ' 失败！其他未知错误')
+        return add_result
 
     def del_obj(self, dn, type):
         '''
@@ -289,6 +317,7 @@ class AD(object):
         @param {type}
         @return:
         @msg: 更新对象，已作修改测试通过 TODO:优化为根据name自动判断dn并更新
+        TODO:后面写入pwd文件需要作判断(覆盖该用户旧的DN和PWD那行记录)
         '''
         changes_dic = {}
         for k, v in attr.items():
@@ -422,15 +451,27 @@ class AD(object):
                 except Exception as e:
                     logging.error(e)
 
+    def create_user_by_excel(self, path):
+        '''
+        @param path{string} 用于新增用户的表格
+        @return:
+        @msg:
+        '''
+        res_dic = self.handle_excel(path)
+        for person in res_dic['person_list']:
+            user_info = person[0:8]
+            self.create_obj(info=user_info)
+
     def ad_update(self, path):
         '''ad域的初始化或更新: 将从表格处理好的数据同步到AD域：
         如果AD域没有OU，则创建OU;
         如果此用户则创建;
-        TODO:需要增加健壮性检验
+        TODO:需要重构
         '''
         result = ad.handle_excel(path)
         for person in result['person_list']:
-            job_id, name, dn, email, tel, title, sam, cn = person[0:8]
+            dn, cn = person[2], person[8]
+            user_info = person[0:8]
             dd = str(dn).split(',', 1)[1]
             # 通过表格中的路径去搜索AD域中对应的用户，如果能搜到说明没改变，略过;
             # 如果没搜到，有可能是该用户调整了位置|或者该用户是新用户，没有创建;
@@ -456,42 +497,24 @@ class AD(object):
                         logging.error(e)
                 else:       # 需要新增user
                     if self.check_ou(dd):
-                        user_attr = {'sAMAccountname': sam,      # 登录名
-                                     'userAccountControl': 544,  # 启用账户
-                                     'title': title,             # 头衔
-                                     'givenName': name[0:1],     # 姓
-                                     'sn': name[1:],             # 名
-                                     'displayname': name,        # 姓名
-                                     'mail': email,              # 邮箱
-                                     'telephoneNumber': tel,     # 电话号
-                                     }
-                        self.create_obj(dn=dn, type='user', attr=user_attr)
+                        self.create_obj(info=user_info)
 
 
 if __name__ == "__main__":
     # 0.创建一个实例
     ad = AD()
+    # 使用excel新增用户    通过√ 
+    # ad.create_user_by_excel(NEW_RAN_EXCEL)
     # ad.get_ous()
     # 处理源数据    通过√
     # result = ad.handle_excel(TEST_RAN_EXCEL)
     # print(result)
-    # 添加人员    通过√
-    # ad.create_obj('CN=王大锤1,OU=上海总部,DC=randolph,DC=com', 'user', attr={
-    #     'sAMAccountname': 'RAN000001',      # 登录名
-    #     'userAccountControl': 544,  # 启用账户
-    #     'title': '技术顾问',             # 头衔
-    #     'givenName': "王",     # 姓
-    #     'sn': "大锤",             # 名
-    #     'displayname': "王大锤",        # 姓名
-    #     'mail': "dachui.wang@ran-china.com",              # 邮箱
-    #             'telephoneNumber': 1502510654,     # 电话号
-    # })
     # 添加OU      通过√
-    # ad.create_obj('OU=TEST,DC=randolph,DC=com', 'ou')
+    # ad.create_obj(dn='OU=TEST,DC=randolph,DC=com', type='ou')
     # 删除对象    通过√
     # ad.del_obj('OU=TEST,DC=randolph,DC=com', type='ou')
     # ad.del_obj('CN=王大锤1,OU=上海总部,DC=randolph,DC=com', type='user')
-    # 更新对象    通过√
+    # 更新对象    通过√     TODO:此方法需要作为基础方法提供ad_update方法调用，attr封装在内
     # result, res = ad.update_obj(dn='CN=李大锤1,OU=上海总部,DC=randolph,DC=com', attr={
     #     'name': '王大锤1',
     #     'sAMAccountname': 'RAN000001',      # 登录名
