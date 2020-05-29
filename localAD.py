@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-29 23:04:32
+@LastEditTime: 2020-05-29 23:08:32
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
