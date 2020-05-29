@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-29 23:08:32
+@LastEditTime: 2020-05-30 01:29:40
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -67,7 +67,7 @@ class AD(object):
                 password=PASSWORD,
                 auto_bind=True,
                 read_only=False,                                            # 禁止修改数据True
-                receive_timeout=3)                                          # 3秒内没返回消息则触发超时异常
+                receive_timeout=10)                                         # 10秒内没返回消息则触发超时异常
             logging.info("distinguishedName:%s res: %s" % (USER, self.conn.bind()))
         except BaseException as e:
             logging.error("AD域连接失败，请检查IP/账户/密码")
@@ -314,7 +314,6 @@ class AD(object):
             [job_id, name, dn, email, tel, title, sam, cn] = info
             attr = {'distinguishedName': dn,    # dn
                     'sAMAccountname': sam,      # 登录名
-                    # 'userAccountControl': 544,  # 启用账户
                     'title': title,             # 头衔
                     'givenName': name[0:1],     # 姓
                     'sn': name[1:],             # 名
@@ -324,24 +323,23 @@ class AD(object):
                     }
         else:
             attr = None
-
         changes_dic = {}
         for k, v in attr.items():
             if not self.conn.compare(dn=old_dn, attribute=k, value=v):                  # 待修改属性
-                if k == "name":
-                    res = self.rename_obj(dn=old_dn, newname='CN=' + attr['name'])      # 若修改name则dn变化，需要调用重命名的方法
+                if k == "name":                     # 若修改name则dn变化，需要调用重命名的方法
+                    # TODO:这里的dn修改了记得将密码文件中这个人的dn信息更新下
+                    res = self.rename_obj(dn=old_dn, newname='CN=' + attr['name'])
                     if res:
                         if "CN" == old_dn[:2]:
                             dn = "CN=%s,%s" % (attr["name"], old_dn.split(",", 1)[1])
                         if "OU" == old_dn[:2]:
                             dn = "DN=%s,%s" % (attr["name"], old_dn.split(",", 1)[1])
-                if k == "distinguishedName":                                            # 若属性有distinguishedName则需要移动user或ou
-                    move_res = self.move_obj(dn=old_dn, new_dn=v)                       # 调用移动user或ou的方法
-                    # print(move_res)
-                    # TODO:这里的dn修改了记得将密码文件中这个人的dn信息更新下
+                if k == "distinguishedName":        # 若属性有distinguishedName则需要移动user或ou
+                    self.move_obj(dn=old_dn, new_dn=v)
                 changes_dic.update({k: [(MODIFY_REPLACE, [v])]})
-                modify_res = self.conn.modify(dn=dn, changes=changes_dic)
-        logging.info('更新对象: ' + str(changes_dic))
+        if len(changes_dic) != 0:   # 有修改的属性时
+            modify_res = self.conn.modify(dn=dn, changes=changes_dic)
+            logging.info('更新对象: ' + dn + ' 更新内容: ' + str(changes_dic))
         return self.conn.result
 
     def rename_obj(self, dn, newname):
@@ -469,7 +467,7 @@ class AD(object):
         '''
         res_dic = self.handle_excel(path)
         for person in res_dic['person_list']:
-            user_info = person[0:8]
+            user_info = person
             self.create_obj(info=user_info)
 
     def ad_update(self, path):
@@ -478,6 +476,7 @@ class AD(object):
         在则判断该用户各属性是否与表格中相同，有不同则修改;
         完全相同的用户不用作处理;
         在表格中未出现的用户则判断为离职员工，需要禁用并移动到离职目录下;
+        TODO:还需要考虑禁用不在表格中的员工是否集成在此
         '''
         # 准备表格文件
         result = ad.handle_excel(path)
@@ -485,19 +484,17 @@ class AD(object):
             dn, cn = person[2], person[7]
             user_info = person
             dd = str(dn).split(',', 1)[1]
-
+            # 根据cn判断用户是否已经存在
             filter_phrase_by_cn = "(&(objectclass=person)(cn=" + cn + "))"
             search_by_cn = self.conn.search(search_base=ENABLED_BASE_DN, search_filter=filter_phrase_by_cn, attributes=['distinguishedName'])
-            search_by_cn_json = self.conn.response_to_json()
-            search_by_cn_json_list = json.loads(search_by_cn_json)['entries']
-            old_dn = search_by_cn_json_list[0]['dn']        # 部门改变的用户的现有部门，从表格拼接出来的是新的dn在user_info中带过去修改
+            search_by_cn_json_list = json.loads(self.conn.response_to_json())['entries']
             search_by_cn_res = self.conn.result
-
             if search_by_cn == False:                       # 根据cn搜索失败，查无此人则新增
                 self.create_obj(info=user_info)
             else:
+                old_dn = search_by_cn_json_list[0]['dn']    # 部门改变的用户的现有部门，从表格拼接出来的是新的dn在user_info中带过去修改
                 self.update_obj(old_dn=old_dn, info=user_info)
-            
+
 
 if __name__ == "__main__":
     # 0.创建一个实例
@@ -510,29 +507,11 @@ if __name__ == "__main__":
     # print(result)
     # 添加OU      通过√
     # ad.create_obj(dn='OU=TEST,DC=randolph,DC=com', type='ou')
-    # 删除对象    通过√
-    # ad.del_obj('OU=TEST,DC=randolph,DC=com', type='ou')
-    # ad.del_obj('CN=王大锤1,OU=上海总部,DC=randolph,DC=com', type='user')
-    # 更新对象    通过√     TODO:此方法需要作为基础方法提供ad_update方法调用，attr封装在内
-    # result, res = ad.update_obj(dn='CN=李大锤1,OU=上海总部,DC=randolph,DC=com', attr={
-    #     'name': '王大锤1',
-    #     'sAMAccountname': 'RAN000001',      # 登录名
-    #     'userAccountControl': 544,          # 启用账户
-    #     'title': '技术顾问',                 # 头衔
-    #     'givenName': "王",                  # 姓
-    #     'sn': "大锤",                       # 名
-    #     'displayname': "王大锤",            # 姓名
-    #     'mail': "dachui.li@ran-china.com",  # 邮箱
-    #     'telephoneNumber': 1502510632,      # 电话号
-    # })
-    # print(result, res)
-    # res = ad.rename_obj(dn='CN=王大锤1,OU=上海总部,DC=randolph,DC=com', newname='CN=李大锤1')
-    # print(res)
     # 分页查询全部user    通过√
     # res = ad.get_users()
     # print(res)
-    # 更新AD域     通过√ 【对于新增的没有问题】  @@@@@修改的待修改@@@@@
-    ad.ad_update(RAN_EXCEL)
+    # 更新AD域     通过√
+    # ad.ad_update(RAN_EXCEL)
     # 执行powershell命令   通过√
     # ad.del_ou_right(flag=0)
     # 空OU的扫描与删除    通过√
