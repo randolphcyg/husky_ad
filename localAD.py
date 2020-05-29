@@ -1,19 +1,10 @@
-'''
-@Author: randolph
-@Date: 2020-05-27 14:33:03
-@LastEditors: randolph
-@LastEditTime: 2020-05-29 12:23:14
-@version: 1.0
-@Contact: cyg0504@outlook.com
-@Descripttion:
-'''
 #!/usr/bin/env python
 # -*- encoding: utf-8 -*-
 '''
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-29 10:39:04
+@LastEditTime: 2020-05-29 23:04:32
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -38,7 +29,7 @@ USER = 'CN=Administrator,CN=Users,DC=randolph,DC=com'       # LDAP本地服务�
 PASSWORD = "QQqq#123"                                       # LDAP本地服务器管理员密码
 
 DISABLED_BASE_DN = 'OU=resigned,DC=randolph,DC=com'        # 离职账户所在OU
-ENABLED_BASE_DN = "OU=上海总部,DC=randolph,DC=com"          # 正式员工账户所在OU
+ENABLED_BASE_DN = "OU=上海总部,DC=randolph,DC=com"         # 正式员工账户所在OU
 USER_SEARCH_FILTER = '(objectclass=user)'                  # 只获取用户对象 过滤条件
 OU_SEARCH_FILTER = '(objectclass=organizationalUnit)'      # 只获取OU对象 过滤条件
 DISABLED_USER_FLAG = [514, 546, 66050, 66080, 66082]       # 禁用账户UserAccountControl对应十进制值列表
@@ -249,7 +240,7 @@ class AD(object):
         '''
         @param dn{string}, type{string}'user'/'ou'
         @return: res新建结果, self.conn.result修改结果
-        @msg:新增对象 
+        @msg:新增对象
         '''
         object_class = {'user': ['user', 'posixGroup', 'top'],
                         'ou': ['organizationalUnit', 'posixGroup', 'top'],
@@ -257,14 +248,14 @@ class AD(object):
         if info is not None:
             [job_id, name, dn, email, tel, title, sam, cn] = info
             user_attr = {'sAMAccountname': sam,      # 登录名
-                                        'userAccountControl': 544,  # 启用账户
-                                        'title': title,             # 头衔
-                                        'givenName': name[0:1],     # 姓
-                                        'sn': name[1:],             # 名
-                                        'displayname': name,        # 姓名
-                                        'mail': email,              # 邮箱
-                                        'telephoneNumber': tel,     # 电话号
-                                        }
+                         'userAccountControl': 544,  # 启用账户
+                         'title': title,             # 头衔
+                         'givenName': name[0:1],     # 姓
+                         'sn': name[1:],             # 名
+                         'displayname': name,        # 姓名
+                         'mail': email,              # 邮箱
+                         'telephoneNumber': tel,     # 电话号
+                         }
         else:
             user_attr = None
         self.conn.add(dn=dn, object_class=object_class[type], attributes=user_attr)
@@ -312,29 +303,46 @@ class AD(object):
         else:
             return False
 
-    def update_obj(self, dn, attr=None):
+    def update_obj(self, old_dn, info=None):
         '''
         @param {type}
         @return:
-        @msg: 更新对象，已作修改测试通过 TODO:优化为根据name自动判断dn并更新
+        @msg: 更新对象
         TODO:后面写入pwd文件需要作判断(覆盖该用户旧的DN和PWD那行记录)
         '''
+        if info is not None:
+            [job_id, name, dn, email, tel, title, sam, cn] = info
+            attr = {'distinguishedName': dn,    # dn
+                    'sAMAccountname': sam,      # 登录名
+                    # 'userAccountControl': 544,  # 启用账户
+                    'title': title,             # 头衔
+                    'givenName': name[0:1],     # 姓
+                    'sn': name[1:],             # 名
+                    'displayname': name,        # 姓名
+                    'mail': email,              # 邮箱
+                    'telephoneNumber': tel,     # 电话号
+                    }
+        else:
+            attr = None
+
         changes_dic = {}
         for k, v in attr.items():
-            if not self.conn.compare(dn=dn, attribute=k, value=v):                  # 待修改属性
+            if not self.conn.compare(dn=old_dn, attribute=k, value=v):                  # 待修改属性
                 if k == "name":
-                    res = self.rename_obj(dn=dn, newname='CN=' + attr['name'])      # 若修改name则dn变化，需要调用重命名的方法
+                    res = self.rename_obj(dn=old_dn, newname='CN=' + attr['name'])      # 若修改name则dn变化，需要调用重命名的方法
                     if res:
-                        if "CN" == dn[:2]:
-                            dn = "CN=%s,%s" % (attr["name"], dn.split(",", 1)[1])
-                        if "OU" == dn[:2]:
-                            dn = "DN=%s,%s" % (attr["name"], dn.split(",", 1)[1])
-                if k == "distinguishedName":                                         # 若属性有distinguishedName则需要移动user或ou
-                    self.move_obj(dn=dn, new_dn=v)                                   # 调用移动user或ou的方法
+                        if "CN" == old_dn[:2]:
+                            dn = "CN=%s,%s" % (attr["name"], old_dn.split(",", 1)[1])
+                        if "OU" == old_dn[:2]:
+                            dn = "DN=%s,%s" % (attr["name"], old_dn.split(",", 1)[1])
+                if k == "distinguishedName":                                            # 若属性有distinguishedName则需要移动user或ou
+                    move_res = self.move_obj(dn=old_dn, new_dn=v)                       # 调用移动user或ou的方法
+                    # print(move_res)
+                    # TODO:这里的dn修改了记得将密码文件中这个人的dn信息更新下
                 changes_dic.update({k: [(MODIFY_REPLACE, [v])]})
                 modify_res = self.conn.modify(dn=dn, changes=changes_dic)
         logging.info('更新对象: ' + str(changes_dic))
-        return self.conn.result, modify_res
+        return self.conn.result
 
     def rename_obj(self, dn, newname):
         '''
@@ -355,7 +363,9 @@ class AD(object):
         @msg: 移动对象到新OU
         '''
         relative_dn, superou = new_dn.split(",", 1)
+        print(dn, relative_dn, superou)
         res = self.conn.modify_dn(dn=dn, relative_dn=relative_dn, new_superior=superou)
+        print(self.conn.result)
         if res == True:
             return True
         else:
@@ -463,47 +473,36 @@ class AD(object):
             self.create_obj(info=user_info)
 
     def ad_update(self, path):
-        '''ad域的初始化或更新: 将从表格处理好的数据同步到AD域：
-        如果AD域没有OU，则创建OU;
-        如果此用户则创建;
-        TODO:需要重构
+        '''AD域的初始化/更新——从表格文件元数据更新AD域:
+        判断用户是否在AD域中——不在则新增;
+        在则判断该用户各属性是否与表格中相同，有不同则修改;
+        完全相同的用户不用作处理;
+        在表格中未出现的用户则判断为离职员工，需要禁用并移动到离职目录下;
         '''
+        # 准备表格文件
         result = ad.handle_excel(path)
         for person in result['person_list']:
-            dn, cn = person[2], person[8]
-            user_info = person[0:8]
+            dn, cn = person[2], person[7]
+            user_info = person
             dd = str(dn).split(',', 1)[1]
-            # 通过表格中的路径去搜索AD域中对应的用户，如果能搜到说明没改变，略过;
-            # 如果没搜到，有可能是该用户调整了位置|或者该用户是新用户，没有创建;
-            self.conn.search(dn, '(objectclass=user)', attributes=['distinguishedName'])
-            if self.conn.result['result'] == 0:      # 未发生变化的用户
-                pass
-            else:
-                filter_phrase = "(&(objectclass=person)(cn=" + cn + "))"
-                self.conn.search(search_base=DISABLED_BASE_DN, search_filter=filter_phrase, attributes=['*'])
-                entry = self.conn.entries
-                if entry:
-                    rela_dn = "cn=" + str(cn)
-                    try:
-                        self.conn.modify_dn(dn=entry[0].distinguishedName, relative_dn=rela_dn, new_superior=dd)
-                        if self.conn.result['result'] == 0:
-                            logging.info("modify_dn " + str(entry[0].distinguishedName), rela_dn, dd)
-                        else:
-                            if self.check_ou(dd):
-                                self.conn.modify_dn(dn=str(entry[0].distinguishedName), relative_dn=str(rela_dn),
-                                                    new_superior=str(dd))
-                                logging.info("modify_dn " + str(entry[0].distinguishedName), rela_dn, dd)
-                    except Exception as e:
-                        logging.error(e)
-                else:       # 需要新增user
-                    if self.check_ou(dd):
-                        self.create_obj(info=user_info)
 
+            filter_phrase_by_cn = "(&(objectclass=person)(cn=" + cn + "))"
+            search_by_cn = self.conn.search(search_base=ENABLED_BASE_DN, search_filter=filter_phrase_by_cn, attributes=['distinguishedName'])
+            search_by_cn_json = self.conn.response_to_json()
+            search_by_cn_json_list = json.loads(search_by_cn_json)['entries']
+            old_dn = search_by_cn_json_list[0]['dn']        # 部门改变的用户的现有部门，从表格拼接出来的是新的dn在user_info中带过去修改
+            search_by_cn_res = self.conn.result
+
+            if search_by_cn == False:                       # 根据cn搜索失败，查无此人则新增
+                self.create_obj(info=user_info)
+            else:
+                self.update_obj(old_dn=old_dn, info=user_info)
+            
 
 if __name__ == "__main__":
     # 0.创建一个实例
     ad = AD()
-    # 使用excel新增用户    通过√ 
+    # 使用excel新增用户    通过√
     # ad.create_user_by_excel(NEW_RAN_EXCEL)
     # ad.get_ous()
     # 处理源数据    通过√
@@ -533,7 +532,7 @@ if __name__ == "__main__":
     # res = ad.get_users()
     # print(res)
     # 更新AD域     通过√ 【对于新增的没有问题】  @@@@@修改的待修改@@@@@
-    # ad.ad_update(TEST_RAN_EXCEL)
+    ad.ad_update(RAN_EXCEL)
     # 执行powershell命令   通过√
     # ad.del_ou_right(flag=0)
     # 空OU的扫描与删除    通过√
