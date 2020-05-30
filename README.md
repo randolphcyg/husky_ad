@@ -2,7 +2,7 @@
  * @Author: randolph
  * @Date: 2020-05-27 14:30:31
  * @LastEditors: randolph
- * @LastEditTime: 2020-05-30 01:22:55
+ * @LastEditTime: 2020-05-31 02:27:59
  * @version: 1.0
  * @Contact: cyg0504@outlook.com
  * @Descripttion: 
@@ -31,7 +31,7 @@
 
 | 项目                                   | 描述                                                       |
 | -------------------------------------- | ---------------------------------------------------------- |
-| python3.6.8                            | 后端语言                                                   |
+| python3                                | 主要后端开发语言                                           |
 | [ldap3](https://ldap3.readthedocs.io/) | 是一个十分优秀且稳健的对active directory域进行管理的炸药包 |
 | pandas                                 | 代替python的原生文件读取包,提高处理效率                    |
 | winrm                                  | 用来远程连接windows server执行powershell命令               |
@@ -44,6 +44,7 @@
 4. 可以先调用查询函数测试AD域连通性，然后执行增改等操作【在优化ad_update方法】
 
 ### 4.使用举例
+为了更好的图示操作过程，带图的操作指导将放在CSDN博客中; 说明文档只作简介;
 #### 4.1.查询AD域测试连接
 `ad = AD()`
 `ad.get_ous()`

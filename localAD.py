@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-30 18:38:47
+@LastEditTime: 2020-05-31 02:28:32
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -209,11 +209,13 @@ class AD(object):
         @return: True/False
         @msg: 连接远程windows并批量执行powershell命令
         '''
-        # powershell命令，用于打开/关闭OU是否被删除的权限
+        # powershell命令 用于启用/关闭OU 防止对象被意外删除 属性
+        # 防止对象被意外删除×
         enable_del = ["Import-Module ActiveDirectory",
                       "Get-ADOrganizationalUnit -filter * -Properties ProtectedFromAccidentalDeletion | where {"
                       "$_.ProtectedFromAccidentalDeletion -eq $true} |Set-ADOrganizationalUnit "
                       "-ProtectedFromAccidentalDeletion $false"]
+        # 防止对象被意外删除√
         disable_del = ["Import-Module ActiveDirectory",
                        "Get-ADOrganizationalUnit -filter * -Properties ProtectedFromAccidentalDeletion | where {"
                        "$_.ProtectedFromAccidentalDeletion -eq $false} |Set-ADOrganizationalUnit "
@@ -258,32 +260,39 @@ class AD(object):
                          }
         else:
             user_attr = None
-        self.conn.add(dn=dn, object_class=object_class[type], attributes=user_attr)
-        add_result = self.conn.result
-
-        if add_result['result'] == 0:
-            logging.info('新增对象【' + dn + '】成功!')
-            if type == 'user':          # 若是新增用户对象，则需要一些初始化操作
-                self.conn.modify(dn, {'userAccountControl': [('MODIFY_REPLACE', 512)]})         # 激活用户                                                               # 如果是用户时
-                new_pwd = self.generate_pwd(8)
-                old_pwd = ''
-                self.conn.extend.microsoft.modify_password(dn, new_pwd, old_pwd)                # 初始化密码
-                info = 'DN: ' + dn + ' PWD: ' + new_pwd
-                save_res = self.write2txt(PWD_PATH, info)                                       # 将账户密码写入文件中
-                if save_res:
-                    logging.info('保存初始化账号密码成功！')
-                else:
-                    logging.error('保存初始化账号密码失败: ' + info)
-                self.conn.modify(dn, {'pwdLastSet': (2, [0])})                                  # 设置第一次登录必须修改密码
-            else:       # 若是OU类型则记得设置不可删除对象
-                self.del_ou_right(flag=1)
-        elif add_result['result'] == 68:
-            logging.error('entryAlreadyExists 用户已经存在')
-        elif add_result['result'] == 32:
-            logging.error('noSuchObject 对象不存在ou错误')
+        # 创建之前需要对dn中的OU部分进行判断，如果没有需要创建
+        dn_base = dn.split(',', 1)[1]
+        check_ou_res = self.check_ou(dn_base)
+        if not check_ou_res:
+            logging.error('check_ou失败，未知原因！')
+            return False
         else:
-            logging.error('新增对象: ' + dn + ' 失败！其他未知错误')
-        return add_result
+            self.conn.add(dn=dn, object_class=object_class[type], attributes=user_attr)
+            add_result = self.conn.result
+
+            if add_result['result'] == 0:
+                logging.info('新增对象【' + dn + '】成功!')
+                if type == 'user':          # 若是新增用户对象，则需要一些初始化操作
+                    self.conn.modify(dn, {'userAccountControl': [('MODIFY_REPLACE', 512)]})         # 激活用户                                                               # 如果是用户时
+                    new_pwd = self.generate_pwd(8)
+                    old_pwd = ''
+                    self.conn.extend.microsoft.modify_password(dn, new_pwd, old_pwd)                # 初始化密码
+                    info = 'DN: ' + dn + ' PWD: ' + new_pwd
+                    save_res = self.write2txt(PWD_PATH, info)                                       # 将账户密码写入文件中
+                    if save_res:
+                        logging.info('保存初始化账号密码成功！')
+                    else:
+                        logging.error('保存初始化账号密码失败: ' + info)
+                    self.conn.modify(dn, {'pwdLastSet': (2, [0])})                                  # 设置第一次登录必须修改密码
+                else:       # 若是OU类型则记得设置不可删除对象
+                    self.del_ou_right(flag=1)
+            elif add_result['result'] == 68:
+                logging.error('entryAlreadyExists 用户已经存在')
+            elif add_result['result'] == 32:
+                logging.error('noSuchObject 对象不存在ou错误')
+            else:
+                logging.error('新增对象: ' + dn + ' 失败！其他未知错误')
+            return add_result
 
     def del_obj(self, dn, type):
         '''
@@ -389,12 +398,13 @@ class AD(object):
         '''
         if ou_list is None:
             ou_list = []
-        self.conn.search(ou, OU_SEARCH_FILTER)  # 判断OU存在性
+        self.conn.search(ou, OU_SEARCH_FILTER)      # 判断OU存在性
 
         while self.conn.result['result'] == 0:
             if ou_list:
                 for ou in ou_list[::-1]:
                     self.conn.add(ou, 'organizationalUnit')
+                    self.del_ou_right(flag=1)       # 防止对象被意外删除√
             return True
         else:
             ou_list.append(ou)
