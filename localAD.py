@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-31 02:28:32
+@LastEditTime: 2020-05-31 03:11:30
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -527,8 +527,10 @@ class AD(object):
 
 
 if __name__ == "__main__":
-    # 创建一个实例
+    # 创建AD域实例
     ad = AD()
+    # 更新AD域     通过√
+    ad.ad_update(RAN_EXCEL)
     # 处理密码过期
     # res_list = ad.handle_pwd_expire()
     # 使用excel新增用户    通过√
@@ -542,11 +544,9 @@ if __name__ == "__main__":
     # 分页查询全部user    通过√
     # res = ad.get_users()
     # print(res)
-    # 更新AD域     通过√
-    # ad.ad_update(RAN_EXCEL)
     # 执行powershell命令   通过√
     # ad.del_ou_right(flag=0)
     # 空OU的扫描与删除    通过√
     # ad.scan_ou()
     # 离职员工逻辑    通过√       【M】将禁用员工的处理集成
-    # ad.disable_users(TEST_RAN_EXCEL)
+    # ad.disable_users(RAN_EXCEL)
