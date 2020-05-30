@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-30 01:29:40
+@LastEditTime: 2020-05-30 18:38:47
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -495,10 +495,32 @@ class AD(object):
                 old_dn = search_by_cn_json_list[0]['dn']    # 部门改变的用户的现有部门，从表格拼接出来的是新的dn在user_info中带过去修改
                 self.update_obj(old_dn=old_dn, info=user_info)
 
+    def handle_pwd_expire(self, attr=None):
+        '''
+        @param {type}
+        @return:
+        @msg: 处理密码过期 设置密码不过期 需要补全理论和测试
+        参考理论地址:
+        https://stackoverflow.com/questions/18615958/ldap-pwdlastset-unable-to-change-without-error-showing
+        '''
+        attr = ['pwdLastSet']
+        self.conn.search(search_base=ENABLED_BASE_DN,
+                         search_filter=USER_SEARCH_FILTER,
+                         attributes=attr)
+        result = self.conn.response_to_json()
+        res_list = json.loads(result)['entries']
+        for l in res_list:
+            pwdLastSet, dn = l['attributes']['pwdLastSet'], l['dn']
+            modify_res = self.conn.modify(dn, {'pwdLastSet': (2, [-1])})      # pwdLastSet只能给-1 或 0
+            if modify_res:
+                logging.info('密码不过期-修改用户: ' + dn)
+
 
 if __name__ == "__main__":
-    # 0.创建一个实例
+    # 创建一个实例
     ad = AD()
+    # 处理密码过期
+    # res_list = ad.handle_pwd_expire()
     # 使用excel新增用户    通过√
     # ad.create_user_by_excel(NEW_RAN_EXCEL)
     # ad.get_ous()
