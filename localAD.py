@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-31 03:11:30
+@LastEditTime: 2020-05-31 21:41:10
 @version: 1.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -317,33 +317,33 @@ class AD(object):
         @param {type}
         @return:
         @msg: 更新对象
-        TODO:后面写入pwd文件需要作判断(覆盖该用户旧的DN和PWD那行记录)
         '''
         if info is not None:
             [job_id, name, dn, email, tel, title, sam, cn] = info
-            attr = {'distinguishedName': dn,    # dn
-                    'sAMAccountname': sam,      # 登录名
-                    'title': title,             # 头衔
-                    'givenName': name[0:1],     # 姓
-                    'sn': name[1:],             # 名
-                    'displayname': name,        # 姓名
-                    'mail': email,              # 邮箱
-                    'telephoneNumber': tel,     # 电话号
-                    }
+            # 组成更新属性之前需要对dn中的OU部分进行判断，如果没有需要创建
+            dn_base = dn.split(',', 1)[1]
+            check_ou_res = self.check_ou(dn_base)
+            if not check_ou_res:
+                logging.error('check_ou失败，未知原因！')
+                return False
+            else:
+                attr = {'distinguishedName': dn,    # dn
+                        'sAMAccountname': sam,      # 登录名
+                        'title': title,             # 头衔
+                        'givenName': name[0:1],     # 姓
+                        'sn': name[1:],             # 名
+                        'displayname': name,        # 姓名
+                        'mail': email,              # 邮箱
+                        'telephoneNumber': tel,     # 电话号
+                        }
         else:
             attr = None
         changes_dic = {}
         for k, v in attr.items():
             if not self.conn.compare(dn=old_dn, attribute=k, value=v):                  # 待修改属性
-                if k == "name":                     # 若修改name则dn变化，需要调用重命名的方法
-                    # TODO:这里的dn修改了记得将密码文件中这个人的dn信息更新下
-                    res = self.rename_obj(dn=old_dn, newname='CN=' + attr['name'])
-                    if res:
-                        if "CN" == old_dn[:2]:
-                            dn = "CN=%s,%s" % (attr["name"], old_dn.split(",", 1)[1])
-                        if "OU" == old_dn[:2]:
-                            dn = "DN=%s,%s" % (attr["name"], old_dn.split(",", 1)[1])
                 if k == "distinguishedName":        # 若属性有distinguishedName则需要移动user或ou
+                    # 若dn修改了需要将密码文件这个人的dn信息更新下
+                    self.update_pwd_file_line(old_dn=old_dn, new_dn=dn)
                     self.move_obj(dn=old_dn, new_dn=v)
                 changes_dic.update({k: [(MODIFY_REPLACE, [v])]})
         if len(changes_dic) != 0:   # 有修改的属性时
@@ -370,9 +370,7 @@ class AD(object):
         @msg: 移动对象到新OU
         '''
         relative_dn, superou = new_dn.split(",", 1)
-        print(dn, relative_dn, superou)
         res = self.conn.modify_dn(dn=dn, relative_dn=relative_dn, new_superior=superou)
-        print(self.conn.result)
         if res == True:
             return True
         else:
@@ -504,6 +502,7 @@ class AD(object):
             else:
                 old_dn = search_by_cn_json_list[0]['dn']    # 部门改变的用户的现有部门，从表格拼接出来的是新的dn在user_info中带过去修改
                 self.update_obj(old_dn=old_dn, info=user_info)
+            # break
 
     def handle_pwd_expire(self, attr=None):
         '''
@@ -525,16 +524,38 @@ class AD(object):
             if modify_res:
                 logging.info('密码不过期-修改用户: ' + dn)
 
+    def update_pwd_file_line(self, old_dn, new_dn):
+        '''
+        @param dn{string}
+        @return: 修改结果
+        @msg: 当用户组织架构发生改变，需要将pwd文件中对应用户的dn进行更新
+        采用临时文件替换源文件的方式，节省内存，但占硬盘
+        参考文章: https://www.cnblogs.com/wuzhengzheng/p/9692368.html
+        '''
+        with open(PWD_PATH, mode='rt', encoding='utf-8') as file, \
+                open('TEMP.txt', mode='wt', encoding='utf-8') as temp_file:
+            for line in file:
+                if old_dn in line:
+                    line = line.replace(old_dn, new_dn)
+                    temp_file.write(line)
+                else:
+                    temp_file.write(line)
+        os.remove(PWD_PATH)
+        os.rename('TEMP.txt', PWD_PATH)
+
 
 if __name__ == "__main__":
     # 创建AD域实例
     ad = AD()
+    # 同步更新pwd文件     通过√
+    # ad.update_pwd_file_line(old_dn='CN=戴东1325,OU=RAN,OU=上海总部,DC=randolph,DC=com',
+    #                         new_dn='CN=戴东1325,OU=董事会,OU=RAN,OU=上海总部,DC=randolph,DC=com')
     # 更新AD域     通过√
     ad.ad_update(RAN_EXCEL)
-    # 处理密码过期
-    # res_list = ad.handle_pwd_expire()
     # 使用excel新增用户    通过√
     # ad.create_user_by_excel(NEW_RAN_EXCEL)
+    # 处理密码过期
+    # res_list = ad.handle_pwd_expire()
     # ad.get_ous()
     # 处理源数据    通过√
     # result = ad.handle_excel(TEST_RAN_EXCEL)
