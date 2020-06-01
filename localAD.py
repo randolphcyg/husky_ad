@@ -4,8 +4,8 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-05-31 21:41:10
-@version: 1.0
+@LastEditTime: 2020-06-01 12:09:23
+@version: 2.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
 '''
@@ -14,12 +14,14 @@ import logging.config
 import os
 import random
 import string
+from time import sleep
 
 import pandas as pd
 import winrm
 import yaml
 from ldap3 import (ALL, ALL_ATTRIBUTES, MODIFY_REPLACE, NTLM, SASL, SIMPLE,
                    SUBTREE, SYNC, Connection, Server)
+from tqdm import tqdm
 
 # 日志配置
 LOG_CONF = 'logging.yaml'
@@ -226,11 +228,11 @@ class AD(object):
             win = winrm.Session('http://' + LDAP_IP + ':5985/wsman', auth=(WINRM_USER, WINRM_PWD))
             for cmd in flag_map[flag]:
                 ret = win.run_ps(cmd)
-            if ret.status_code == 0:      # 调用成功
-                if flag == 0:
-                    logging.info("防止对象被意外删除×")
-                elif flag == 1:
-                    logging.info("防止对象被意外删除√")
+            if ret.status_code == 0:      # 调用成功 减少日志写入
+                # if flag == 0:
+                #     logging.info("防止对象被意外删除×")
+                # elif flag == 1:
+                #     logging.info("防止对象被意外删除√")
                 return True
             else:
                 return False
@@ -284,8 +286,6 @@ class AD(object):
                     else:
                         logging.error('保存初始化账号密码失败: ' + info)
                     self.conn.modify(dn, {'pwdLastSet': (2, [0])})                                  # 设置第一次登录必须修改密码
-                else:       # 若是OU类型则记得设置不可删除对象
-                    self.del_ou_right(flag=1)
             elif add_result['result'] == 68:
                 logging.error('entryAlreadyExists 用户已经存在')
             elif add_result['result'] == 32:
@@ -402,7 +402,6 @@ class AD(object):
             if ou_list:
                 for ou in ou_list[::-1]:
                     self.conn.add(ou, 'organizationalUnit')
-                    self.del_ou_right(flag=1)       # 防止对象被意外删除√
             return True
         else:
             ou_list.append(ou)
@@ -412,26 +411,25 @@ class AD(object):
 
     def scan_ou(self):
         res = self.get_ous(attr=['distinguishedName'])
+        # 调用ps脚本，防止对象被意外删除×
+        modify_right_res = self.del_ou_right(flag=0)
         for i, ou in enumerate(res):
             dn = ou['attributes']['distinguishedName']
             # 判断dd下面是否有用户，没有用户的直接删除
             self.conn.search(search_base=dn, search_filter=USER_SEARCH_FILTER)
             if not self.conn.entries:  # 没有用户存在的空OU，可以进行清理
                 try:
-                    # 调用ps脚本，防止对象被意外删除×
-                    modify_right_res = self.del_ou_right(flag=0)
-                    if modify_right_res:
-                        self.conn.delete(dn=dn)
-                    if self.conn.result['result'] == 0:
+                    delete_res = self.conn.delete(dn=dn)
+                    if delete_res:
                         logging.info('删除空的OU: ' + dn + ' 成功！')
                     else:
                         logging.error('删除操作处理结果' + str(self.conn.result))
-                    # 防止对象被意外删除√
-                    self.del_ou_right(flag=1)
                 except Exception as e:
                     logging.error(e)
         else:
             logging.info("没有空OU，OU扫描完成！")
+        # 防止对象被意外删除√
+        self.del_ou_right(flag=1)
 
     def disable_users(self, path):
         '''
@@ -483,26 +481,48 @@ class AD(object):
         判断用户是否在AD域中——不在则新增;
         在则判断该用户各属性是否与表格中相同，有不同则修改;
         完全相同的用户不用作处理;
-        在表格中未出现的用户则判断为离职员工，需要禁用并移动到离职目录下;
-        TODO:还需要考虑禁用不在表格中的员工是否集成在此
         '''
         # 准备表格文件
         result = ad.handle_excel(path)
-        for person in result['person_list']:
-            dn, cn = person[2], person[7]
-            user_info = person
-            dd = str(dn).split(',', 1)[1]
-            # 根据cn判断用户是否已经存在
-            filter_phrase_by_cn = "(&(objectclass=person)(cn=" + cn + "))"
-            search_by_cn = self.conn.search(search_base=ENABLED_BASE_DN, search_filter=filter_phrase_by_cn, attributes=['distinguishedName'])
-            search_by_cn_json_list = json.loads(self.conn.response_to_json())['entries']
-            search_by_cn_res = self.conn.result
-            if search_by_cn == False:                       # 根据cn搜索失败，查无此人则新增
-                self.create_obj(info=user_info)
-            else:
-                old_dn = search_by_cn_json_list[0]['dn']    # 部门改变的用户的现有部门，从表格拼接出来的是新的dn在user_info中带过去修改
-                self.update_obj(old_dn=old_dn, info=user_info)
-            # break
+        ori_data = result['person_list']
+        try:
+            self.del_ou_right(flag=0)   # 防止对象被意外删除×
+            with tqdm(iterable=ori_data, ncols=100, total=len(ori_data), desc='处理进度', unit='人') as tqdm_ori_data:    # 封装进度条
+                for person in tqdm_ori_data:
+                    dn, cn = person[2], person[7]
+                    user_info = person
+                    dd = str(dn).split(',', 1)[1]
+                    # 根据cn判断用户是否已经存在
+                    filter_phrase_by_cn = "(&(objectclass=person)(cn=" + cn + "))"
+                    search_by_cn = self.conn.search(search_base=ENABLED_BASE_DN, search_filter=filter_phrase_by_cn, attributes=['distinguishedName'])
+                    search_by_cn_json_list = json.loads(self.conn.response_to_json())['entries']
+                    search_by_cn_res = self.conn.result
+                    if search_by_cn == False:                       # 根据cn搜索失败，查无此人则新增
+                        self.create_obj(info=user_info)
+                    else:
+                        old_dn = search_by_cn_json_list[0]['dn']    # 部门改变的用户的现有部门，从表格拼接出来的是新的dn在user_info中带过去修改
+                        self.update_obj(old_dn=old_dn, info=user_info)
+                    # break
+                self.del_ou_right(flag=1)   # # 防止对象被意外删除√
+        except KeyboardInterrupt:
+            tqdm_ori_data.close()
+            raise
+        tqdm_ori_data.close()
+        # for person in result['person_list']:
+        #     dn, cn = person[2], person[7]
+        #     user_info = person
+        #     dd = str(dn).split(',', 1)[1]
+        #     # 根据cn判断用户是否已经存在
+        #     filter_phrase_by_cn = "(&(objectclass=person)(cn=" + cn + "))"
+        #     search_by_cn = self.conn.search(search_base=ENABLED_BASE_DN, search_filter=filter_phrase_by_cn, attributes=['distinguishedName'])
+        #     search_by_cn_json_list = json.loads(self.conn.response_to_json())['entries']
+        #     search_by_cn_res = self.conn.result
+        #     if search_by_cn == False:                       # 根据cn搜索失败，查无此人则新增
+        #         self.create_obj(info=user_info)
+        #     else:
+        #         old_dn = search_by_cn_json_list[0]['dn']    # 部门改变的用户的现有部门，从表格拼接出来的是新的dn在user_info中带过去修改
+        #         self.update_obj(old_dn=old_dn, info=user_info)
+        # break
 
     def handle_pwd_expire(self, attr=None):
         '''
@@ -543,15 +563,30 @@ class AD(object):
         os.remove(PWD_PATH)
         os.rename('TEMP.txt', PWD_PATH)
 
+    def process_bar(self, path):
+        result = ad.handle_excel(path)
+        ori_data = result['person_list']
+        
+        try:
+            with tqdm(iterable=ori_data, ncols=100, total=len(ori_data), desc='处理进度', unit='人') as tqdm_ori_data:
+                for person in tqdm_ori_data:
+                    # DOSTH
+                    sleep(0.01)
+        except KeyboardInterrupt:
+            tqdm_ori_data.close()
+            raise
+        tqdm_ori_data.close()
+
 
 if __name__ == "__main__":
     # 创建AD域实例
     ad = AD()
+    ad.process_bar(RAN_EXCEL)
     # 同步更新pwd文件     通过√
     # ad.update_pwd_file_line(old_dn='CN=戴东1325,OU=RAN,OU=上海总部,DC=randolph,DC=com',
     #                         new_dn='CN=戴东1325,OU=董事会,OU=RAN,OU=上海总部,DC=randolph,DC=com')
     # 更新AD域     通过√
-    ad.ad_update(RAN_EXCEL)
+    # ad.ad_update(RAN_EXCEL)
     # 使用excel新增用户    通过√
     # ad.create_user_by_excel(NEW_RAN_EXCEL)
     # 处理密码过期

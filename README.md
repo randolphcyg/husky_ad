@@ -2,7 +2,7 @@
  * @Author: randolph
  * @Date: 2020-05-27 14:30:31
  * @LastEditors: randolph
- * @LastEditTime: 2020-05-31 02:27:59
+ * @LastEditTime: 2020-06-01 12:10:54
  * @version: 1.0
  * @Contact: cyg0504@outlook.com
  * @Descripttion: 
@@ -22,6 +22,7 @@
 - [x] 将重要修改信息与错误信息分离
 - [x] 用txt将用户/密码“持久化”
 - [x] 使用excel新增用户,只需要将用于新增用户的模板表格更新即可
+- [x] 增加进度条、优化运行速度(执行powershell命令不放在循环中)
 - [ ] AD域密码过期监控，扫描当前AD域的函数，针对过期时间修改新的密码并覆盖更新
 - [ ] 邮件通知模块，根据需要将账号密码的初始化结果/修改结果发送给指定用户
 
