@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-06-01 17:32:43
+@LastEditTime: 2020-06-02 19:10:09
 @version: 2.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -13,6 +13,7 @@ import json
 import logging.config
 import os
 import random
+import re
 import string
 from time import sleep
 
@@ -529,34 +530,71 @@ class AD(object):
             if modify_res:
                 logging.info('密码不过期-修改用户: ' + dn)
 
-    def update_pwd_file_line(self, old_dn, new_dn):
+    def update_pwd_file_line(self, old_dn=None, new_dn=None, new_pwd=None):
         '''
         @param dn{string}
         @return: 修改结果
-        @msg: 当用户组织架构发生改变，需要将pwd文件中对应用户的dn进行更新
+        @msg: 当用户的dn或密码被程序更新，将会在这里更新对应部分的信息
         采用临时文件替换源文件的方式，节省内存，但占硬盘
         参考文章: https://www.cnblogs.com/wuzhengzheng/p/9692368.html
         '''
         with open(PWD_PATH, mode='rt', encoding='utf-8') as file, \
                 open('TEMP.txt', mode='wt', encoding='utf-8') as temp_file:
             for line in file:
-                if old_dn in line:
-                    line = line.replace(old_dn, new_dn)
-                    temp_file.write(line)
-                else:
-                    temp_file.write(line)
+                if old_dn and new_dn:                   # dn被修改
+                    if old_dn in line:
+                        line = line.replace(old_dn, new_dn)
+                        temp_file.write(line)
+                    else:
+                        temp_file.write(line)
+                elif new_pwd and old_dn:                # 密码被修改
+                    if old_dn in line:
+                        # 需要正则匹配旧的密码
+                        pattern = "PWD: (.+?)\\n"       # 惰性匹配
+                        local = re.findall(pattern, line)
+                        old_pwd = local[0]
+                        line = line.replace(old_pwd, new_pwd)
+                        temp_file.write(line)
+                    else:
+                        temp_file.write(line)
         os.remove(PWD_PATH)
         os.rename('TEMP.txt', PWD_PATH)
+
+    def modify_pwd(self, cn):
+        '''
+        @param cn{string} 姓名工号 戴东1325
+        @return: 修改结果
+        @msg: 修改密码
+        '''
+        # 根据cn判断用户是否已经存在
+        filter_phrase_by_cn = "(&(objectclass=person)(cn=" + cn + "))"
+        search_by_cn = self.conn.search(search_base=ENABLED_BASE_DN, search_filter=filter_phrase_by_cn, attributes=['distinguishedName'])
+        search_by_cn_json_list = json.loads(self.conn.response_to_json())['entries']
+        if search_by_cn:
+            new_pwd = self.generate_pwd(8)
+            old_pwd = ''
+            dn = search_by_cn_json_list[0]['dn']
+            modify_password_res = self.conn.extend.microsoft.modify_password(dn, new_pwd, old_pwd)
+            if modify_password_res:
+                logging.info('更新了对象: ' + dn + ' 的密码')
+                # 若密码修改了需要将密码文件这个人的密码信息更新下
+                self.update_pwd_file_line(old_dn=dn, new_pwd=new_pwd)
+            else:
+                logging.error('更新对象密码失败！: ' + dn)
+        else:
+            logging.error('查无此人！')
 
 
 if __name__ == "__main__":
     # 创建AD域实例
     ad = AD()
+    # 修改密码只需要给出 姓名工号 组合的cn     通过√
+    # ad.modify_pwd("戴东1325")
     # 同步更新pwd文件     通过√
-    # ad.update_pwd_file_line(old_dn='CN=戴东1325,OU=RAN,OU=上海总部,DC=randolph,DC=com',
-    #                         new_dn='CN=戴东1325,OU=董事会,OU=RAN,OU=上海总部,DC=randolph,DC=com')
+    # ad.update_pwd_file_line(old_dn='CN=戴东1325,OU=董事会,OU=RAN,OU=上海总部,DC=randolph,DC=com',
+    #                         new_dn='CN=戴东1325,OU=RAN,OU=上海总部,DC=randolph,DC=com')
     # 更新AD域     通过√
-    ad.ad_update(RAN_EXCEL)
+    # ad.ad_update(RAN_EXCEL)
     # 使用excel新增用户    通过√
     # ad.create_user_by_excel(NEW_RAN_EXCEL)
     # 处理密码过期
