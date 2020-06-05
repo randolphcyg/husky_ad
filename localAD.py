@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-06-02 19:10:09
+@LastEditTime: 2020-06-05 12:15:55
 @version: 2.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -38,9 +38,9 @@ OU_SEARCH_FILTER = '(objectclass=organizationalUnit)'      # 只获取OU对象 �
 DISABLED_USER_FLAG = [514, 546, 66050, 66080, 66082]       # 禁用账户UserAccountControl对应十进制值列表
 ENABLED_USER_FLAG = [512, 544, 66048, 262656]              # 启用账户UserAccountControl对应十进制值列表
 # excel表格
-RAN_EXCEL = "ran_list.xlsx"                        # 原始造的数据
-TEST_RAN_EXCEL = "test_ran_list.xlsx"              # 测试用表格
-NEW_RAN_EXCEL = "new_ran_list.xlsx"              # 新增员工表格
+RAN_EXCEL = "ran_list.xlsx"                                 # 原始造的数据
+TEST_RAN_EXCEL = "test_ran_list.xlsx"                       # 测试用表格
+NEW_RAN_EXCEL = "new_ran_list.xlsx"                         # 新增员工表格
 PWD_PATH = 'pwd.txt'
 # WINRM信息 无需设置
 WINRM_USER = 'Administrator'
@@ -59,25 +59,25 @@ class AD(object):
         # 初始化加载日志配置
         self.setup_logging(path=LOG_CONF)
         SERVER = Server(host=LDAP_IP,
-                        port=636,                                       # 636安全端口
+                        port=636,               # 636安全端口
                         use_ssl=True,
                         get_info=ALL,
-                        connect_timeout=3)                              # 连接超时为3秒
+                        connect_timeout=3)      # 连接超时为3秒
         try:
             self.conn = Connection(
                 server=SERVER,
                 user=USER,
                 password=PASSWORD,
                 auto_bind=True,
-                read_only=False,                                            # 禁止修改数据True
-                receive_timeout=10)                                         # 10秒内没返回消息则触发超时异常
+                read_only=False,                # 禁止修改数据True
+                receive_timeout=10)             # 10秒内没返回消息则触发超时异常
             logging.info("distinguishedName:%s res: %s" % (USER, self.conn.bind()))
         except BaseException as e:
             logging.error("AD域连接失败，请检查IP/账户/密码")
         finally:
             self.conn.closed
 
-    def setup_logging(self, path="logging.yaml", default_level=logging.INFO, env_key="LOG_CFG"):
+    def setup_logging(self, path=LOG_CONF, default_level=logging.INFO, env_key="LOG_CFG"):
         value = os.getenv(env_key, None)
         if value:
             path = value
@@ -577,12 +577,30 @@ class AD(object):
             modify_password_res = self.conn.extend.microsoft.modify_password(dn, new_pwd, old_pwd)
             if modify_password_res:
                 logging.info('更新了对象: ' + dn + ' 的密码')
-                # 若密码修改了需要将密码文件这个人的密码信息更新下
-                self.update_pwd_file_line(old_dn=dn, new_pwd=new_pwd)
+                is_exist = os.path.exists(PWD_PATH)
+                if not is_exist:        # 校验密码文件存在性
+                    info = 'DN: ' + dn + ' PWD: ' + new_pwd
+                    save_res = self.write2txt(PWD_PATH, info)                                       # 将账户密码写入文件中
+                    if save_res:
+                        logging.info('保存初始化账号密码成功！')
+                    else:
+                        logging.error('保存初始化账号密码失败: ' + info)
+                else:
+                    # 若密码修改了需要将密码文件这个人的密码信息更新下
+                    with open(PWD_PATH, mode='rt', encoding='utf-8') as file:
+                        if dn in file.read():
+                            is_exist_pwd_record = True
+                        else:
+                            is_exist_pwd_record = False
+                    if is_exist_pwd_record:     # 若发现此人信息在密码文件里则更新，否则需创建
+                        self.update_pwd_file_line(old_dn=dn, new_pwd=new_pwd)
+                    else:
+                        info = 'DN: ' + dn + ' PWD: ' + new_pwd     # 因为是修改密码，所以dn未修改
+                        self.write2txt(PWD_PATH, info)
             else:
                 logging.error('更新对象密码失败！: ' + dn)
         else:
-            logging.error('查无此人！')
+            logging.error('查无此人！请检查待修改密码对象格式是否为【姓名工号】')
 
 
 if __name__ == "__main__":
