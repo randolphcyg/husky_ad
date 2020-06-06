@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-06-05 12:15:55
+@LastEditTime: 2020-06-06 19:39:39
 @version: 2.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -118,7 +118,7 @@ class AD(object):
                          attributes=attr)
         result = self.conn.response_to_json()
         res_list = json.loads(result)['entries']
-        return res_list
+        return res_list[::-1]
 
     def handle_excel(self, path):
         '''
@@ -411,6 +411,11 @@ class AD(object):
             return True
 
     def scan_ou(self):
+        '''扫描的时候，必须保证此OU为叶子节点，否则报notAllowedOnNonLeaf错误，
+        例如此次空OU——OU=开发部,OU=核心技术部,OU=RAN,OU=上海总部,DC=randolph,DC=com
+        的倒数第一、二层都是空OU，但是必须得先删除倒数第一层
+        因此在获取所有OU列表的位置get_ous就将获得的结果倒叙(用切片[::-1])
+        '''
         res = self.get_ous(attr=['distinguishedName'])
         # 调用ps脚本，防止对象被意外删除×
         modify_right_res = self.del_ou_right(flag=0)
