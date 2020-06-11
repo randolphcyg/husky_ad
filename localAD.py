@@ -4,7 +4,7 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-06-06 19:39:39
+@LastEditTime: 2020-06-11 15:22:39
 @version: 2.0
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
@@ -21,7 +21,7 @@ import pandas as pd
 import winrm
 import yaml
 from ldap3 import (ALL, ALL_ATTRIBUTES, MODIFY_REPLACE, NTLM, SASL, SIMPLE,
-                   SUBTREE, SYNC, Connection, Server)
+                   SUBTREE, SYNC, Connection, Server, LEVEL)
 from tqdm import tqdm
 
 # 日志配置
@@ -57,7 +57,7 @@ class AD(object):
         AD基础信息加载
         '''
         # 初始化加载日志配置
-        self.setup_logging(path=LOG_CONF)
+        self.__setup_logging(path=LOG_CONF)
         SERVER = Server(host=LDAP_IP,
                         port=636,               # 636安全端口
                         use_ssl=True,
@@ -77,7 +77,7 @@ class AD(object):
         finally:
             self.conn.closed
 
-    def setup_logging(self, path=LOG_CONF, default_level=logging.INFO, env_key="LOG_CFG"):
+    def __setup_logging(self, path=LOG_CONF, default_level=logging.INFO, env_key="LOG_CFG"):
         value = os.getenv(env_key, None)
         if value:
             path = value
@@ -91,7 +91,7 @@ class AD(object):
     def get_users(self, attr=ALL_ATTRIBUTES):
         '''
         @param {type}
-        @return: total_entries所有用户
+        @return: total_entries 此次查询到的记录数目
         @msg: 获取所有用户
         '''
         entry_list = self.conn.extend.standard.paged_search(
@@ -100,7 +100,7 @@ class AD(object):
             search_scope=SUBTREE,
             attributes=attr,
             paged_size=5,
-            generator=False)                                        # 关闭生成器，结果为列表
+            generator=False)                    # 关闭生成器，结果为列表
         total_entries = 0
         for entry in entry_list:
             total_entries += 1
@@ -119,7 +119,26 @@ class AD(object):
         result = self.conn.response_to_json()
         res_list = json.loads(result)['entries']
         return res_list[::-1]
-
+    
+    def get_level_users(self, SEARCH_BASE, attr=ALL_ATTRIBUTES):
+        '''
+        @param {type}
+        @return: total_entries 此次查询到的记录数目
+        @msg: 获取某OU下用户
+        '''
+        entry_list = self.conn.extend.standard.paged_search(
+            search_base=SEARCH_BASE,
+            search_filter=USER_SEARCH_FILTER,
+            search_scope=LEVEL,
+            attributes=attr,
+            paged_size=5,
+            generator=False)                    # 关闭生成器，结果为列表
+        total_entries = 0
+        for entry in entry_list:
+            total_entries += 1
+        logging.info("共查询到记录条目: " + str(total_entries))
+        return entry_list
+    
     def handle_excel(self, path):
         '''
         @param path{string} excel文件绝对路径
