@@ -4,8 +4,8 @@
 @Author: randolph
 @Date: 2020-05-27 14:33:03
 @LastEditors: randolph
-@LastEditTime: 2020-06-11 15:22:39
-@version: 2.0
+@LastEditTime: 2020-06-23 14:26:45
+@version: 2.1
 @Contact: cyg0504@outlook.com
 @Descripttion: 用python3+ldap3管理windows server2019的AD域;
 '''
@@ -20,17 +20,17 @@ from time import sleep
 import pandas as pd
 import winrm
 import yaml
-from ldap3 import (ALL, ALL_ATTRIBUTES, MODIFY_REPLACE, NTLM, SASL, SIMPLE,
-                   SUBTREE, SYNC, Connection, Server, LEVEL)
+from ldap3 import (ALL, ALL_ATTRIBUTES, LEVEL, MODIFY_REPLACE, NTLM, SASL,
+                   SIMPLE, SUBTREE, SYNC, Connection, Server)
 from tqdm import tqdm
 
 # 日志配置
 LOG_CONF = 'logging.yaml'
 # AD域设置
-LDAP_IP = '192.168.255.223'                                 # LDAP本地服务器IP
-USER = 'CN=Administrator,CN=Users,DC=randolph,DC=com'       # LDAP本地服务器IP
-PASSWORD = "QQqq#123"                                       # LDAP本地服务器管理员密码
-
+LDAP_IP = '192.168.255.223'                                # LDAP本地服务器IP
+USER = 'CN=Administrator,CN=Users,DC=randolph,DC=com'      # LDAP本地服务器IP
+PASSWORD = "QQqq#123"                                      # LDAP本地服务器管理员密码
+CUSTOM_SAMA = 'RAN'                                        # 自定义登录名英文前缀
 DISABLED_BASE_DN = 'OU=resigned,DC=randolph,DC=com'        # 离职账户所在OU
 ENABLED_BASE_DN = "OU=上海总部,DC=randolph,DC=com"         # 正式员工账户所在OU
 USER_SEARCH_FILTER = '(objectclass=user)'                  # 只获取用户对象 过滤条件
@@ -62,7 +62,7 @@ class AD(object):
                         port=636,               # 636安全端口
                         use_ssl=True,
                         get_info=ALL,
-                        connect_timeout=3)      # 连接超时为3秒
+                        connect_timeout=5)      # 连接超时为5秒
         try:
             self.conn = Connection(
                 server=SERVER,
@@ -119,7 +119,7 @@ class AD(object):
         result = self.conn.response_to_json()
         res_list = json.loads(result)['entries']
         return res_list[::-1]
-    
+
     def get_level_users(self, SEARCH_BASE, attr=ALL_ATTRIBUTES):
         '''
         @param {type}
@@ -138,7 +138,7 @@ class AD(object):
             total_entries += 1
         logging.info("共查询到记录条目: " + str(total_entries))
         return entry_list
-    
+
     def handle_excel(self, path):
         '''
         @param path{string} excel文件绝对路径
@@ -174,10 +174,10 @@ class AD(object):
                     job_id, name, depart = row[0:3]
                     # 将部门列替换成DN
                     row[2] = 'CN=' + str(name + str(job_id)) + ',' + 'OU=' + ',OU='.join(row[2].split('.')[::-1]) + ',' + ENABLED_BASE_DN
-                    row.append('RAN' + str(job_id).zfill(6))        # 增加登录名列,对应AD域user的 sAMAccountname 属性
-                    row.append(name + str(job_id))                  # 增加CN列,对应user的 cn 属性
+                    row.append(CUSTOM_SAMA + str(job_id).zfill(6))      # 增加登录名列,对应AD域user的 sAMAccountname 属性
+                    row.append(name + str(job_id))                      # 增加CN列,对应user的 cn 属性
                 # 3.开始处理返回字典
-                result_dic = dict()                         # 返回字典
+                result_dic = dict()                                     # 返回字典
                 if a > 1000:
                     result_dic['page_flag'] = True
                 else:
@@ -299,7 +299,7 @@ class AD(object):
                     new_pwd = self.generate_pwd(8)
                     old_pwd = ''
                     self.conn.extend.microsoft.modify_password(dn, new_pwd, old_pwd)                # 初始化密码
-                    info = 'DN: ' + dn + ' PWD: ' + new_pwd
+                    info = 'SAM: ' + sam + ' PWD: ' + new_pwd + ' DN: ' + dn
                     save_res = self.write2txt(PWD_PATH, info)                                       # 将账户密码写入文件中
                     if save_res:
                         logging.info('保存初始化账号密码成功！')
