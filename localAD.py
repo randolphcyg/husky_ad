@@ -150,7 +150,7 @@ class AD(object):
         '''
         try:
             # 1.开始源文件格式扫描
-            df = pd.read_excel(path, encoding='utf-8', error_bad_lines=False)           # 读取源文件
+            df = pd.read_excel(path)           # 读取源文件
             a, b = df.shape                                                             # 表格行列数
             cols = df.columns.tolist()                  # 表格列名列表
             is_ex_null = df.isnull().any().tolist()     # 列是否存在空值
@@ -161,7 +161,7 @@ class AD(object):
             elif int(dic["工号"]) + int(dic["姓名"]) + int(dic["部门"]) > 0:            # 判断必须列是否有空值
                 logging.error("必要列存在空值记录，请检查补全后重试：" + '\n' + str(df[df.isnull().values == True]))
             else:
-                df = pd.read_excel(path, encoding='utf-8', error_bad_lines=False, usecols=[i for i in range(0, b)])
+                df = pd.read_excel(path, usecols=[i for i in range(0, b)])
                 use_cols = ["工号", "姓名", "部门"]     # 使用的必须列
                 for c in ["邮件", "电话", "岗位"]:      # 扩展列的列名在这里添加即可
                     if c in cols:
