@@ -7,7 +7,7 @@
  * @Contact: cyg0504@outlook.com
  * @Descripttion: 
 --> 
-# husky_ad
+# husky_ad 【因为后面使用了阿里的ant design pro typescript复写这些功能 因此此1.0版本停更】
 
 ### 1.介绍
 
